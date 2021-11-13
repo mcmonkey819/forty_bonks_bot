@@ -8,7 +8,7 @@ import logging
 from prettytable import PrettyTable, DEFAULT, ALL
 import re
 import asyncio
-from datetime import datetime
+from datetime import datetime, date
 
 # 40 Bonks Server Info
 FORTY_BONKS_SERVER_ID = 485284146063736832
@@ -17,7 +17,7 @@ FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL = 907626794474156062
 FORTY_BONKS_BOT_COMMAND_CHANNELS = [ 907627122732982363, FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL ]
 FORTY_BONKS_RACE_CREATOR_ROLE = 782804969107226644
 FORTY_BONKS_WEEKLY_RACER_ROLE = 732078040892440736
-FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL = 0
+FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL = 747239559175208961
 
 # Bot Testing Things Server Info
 BTT_SERVER_ID = 853060981528723468
@@ -67,7 +67,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
     def __init__(self, bot):
         self.bot = bot
         self.test_mode = False
-        self.db_connection = sqlite3.connect(TEST_DB)
+        self.db_connection = sqlite3.connect(PRODUCTION_DB)
         self.cursor = self.db_connection.cursor()
         self.weekly_category_id = 1
         self.pt = PrettyTable()
@@ -84,6 +84,8 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 ########################################################################################################################
     def setTestMode(self):
         self.test_mode = True
+        self.db_connection = sqlite3.connect(TEST_DB)
+        self.cursor = self.db_connection.cursor()
         self.server_id = BTT_SERVER_ID
         self.race_creator_role_id = BTT_RACE_CREATOR_ROLE
         self.weekly_submit_channel_id = BTT_WEEKLY_SUBMIT_CHANNEL
@@ -496,14 +498,12 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         # SQL is funny, providing an offset of 10 will show results 11 and later. This is counter intuitive so this command expresses it as a starting point
         # instead. So our offset is simply (start - 1)
         offset = (start - 1)
-        race_ids_base_sql = ""
-        is_race_creator = self.isRaceCreator(ctx)
+        race_ids_sql = ""
         is_race_creator_channel = await isRaceCreatorCommandChannel(ctx)
-        if is_race_creator:
-            race_ids_base_sql = QueryMostRecentFromCategorySql
+        if is_race_creator_channel:
+            race_ids_sql = QueryMostRecentFromCategorySql.format(self.weekly_category_id, offset)
         else:
-            race_ids_base_sql = QueryMostRecentActiveFromCategorySql
-        race_ids_sql = race_ids_base_sql.format(self.weekly_category_id, offset)
+            race_ids_sql = QueryMostRecentActiveFromCategorySql.format(self.weekly_category_id, offset)
         self.cursor.execute(race_ids_sql)
         race_ids_results = self.cursor.fetchall()
         if len(race_ids_results) > 0:
