@@ -152,7 +152,7 @@ WHERE id={};'''
 QueryMostRecentFromCategorySql = '''
 SELECT * FROM async_races 
 WHERE category_id={}
-ORDER BY start DESC
+ORDER BY id DESC
 LIMIT 5 OFFSET {};'''
 
 # Query Active 40_bonks asyncs, order by most recent, first parameter is category_id, second parameter is offset start (e.g. 0, 5, 10, etc)

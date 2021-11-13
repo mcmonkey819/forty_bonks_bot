@@ -14,11 +14,11 @@ parser.add_argument('-test', '-t', action='store_true', help='Runs the bot in te
 args = parser.parse_args(sys.argv[1:])
 
 bot_token = config.PRODUCTION_TOKEN
+dbName = "AsyncRaceInfo.db"
 test_mode = args.test == True or config.TEST_MODE
 if test_mode:
     bot_token = config.MCMONKEY_TEST_TOKEN
-
-dbName = "importTestDB.db"
+    dbName = "testDbUtil.db"
 dbConn = sqlite3.connect(dbName)
 dbCursor = dbConn.cursor()
 client = discord.Client()
@@ -33,7 +33,7 @@ class Bot(commands.Bot):
                 logging.error('Could not load extension {0} due to {1.__class__.__name__}: {1}'.format(cog, exc))
 
     async def on_ready(self):
-        await self.change_presence(status='invisible')
+        #await self.change_presence(status='invisible')
         logging.info('Logged on as {0} (ID: {0.id})'.format(self.user))
 
 
