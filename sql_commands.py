@@ -173,7 +173,7 @@ LIMIT 5 OFFSET {};'''
 QueryRaceLeaderboardSql = '''
 SELECT * FROM async_submissions
 WHERE race_id={}
-ORDER BY date(finish_time_igt) ASC;'''
+ORDER BY time(substr('0' || finish_time_igt, -8, 8)) ASC;'''
 
 # Query submissions for a specific race_id and user_id
 QueryUserRaceSubmissions = '''
