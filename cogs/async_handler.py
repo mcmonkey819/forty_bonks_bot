@@ -319,7 +319,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 
         leaderboardStr = ""
         if len(race_submissions) == 0:
-            leaderboard_str = "No results for race {}".format(race_id)
+            leaderboard_str = "No results yet for race {} which started on {}".format(race_id, raceInfo[ASYNC_RACES_START])
         else:
             leaderboard_str = "Leaderboard for race {} which started on {}".format(race_id, raceInfo[ASYNC_RACES_START])
             if raceInfo is not None:
@@ -335,9 +335,11 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
                             submission[ASYNC_SUBMISSIONS_COLLECTION]])
 
         message_list = self.buildResponseMessageList(leaderboard_str)
-        table_message_list = self.buildResponseMessageList(self.pt.get_string())
-        for idx, msg in enumerate(table_message_list):
-            table_message_list[idx] = "`{}`".format(msg)
+        table_message_list = []
+        if len(race_submissions) > 0:
+            table_message_list = self.buildResponseMessageList(self.pt.get_string())
+            for idx, msg in enumerate(table_message_list):
+                table_message_list[idx] = "`{}`".format(msg)
         return message_list + table_message_list
 
     ####################################################################################################################
@@ -488,7 +490,11 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 
         # We want to direct users to the leaderboard channel for the current async
         if int(race_id) == latest_race_id:
-            await ctx.send("To view the current async leaderboard submit a time or FF in the weekly submit channel and the leaderboard channel will become visible")
+            if self.isRaceCreator(ctx):
+                await self.updateLeaderboardMessage(race_id, ctx)
+                await ctx.send("Updated weekly leaderboard channel")
+            else:
+                await ctx.send("To view the current async leaderboard submit a time or FF in the weekly submit channel and the leaderboard channel will become visible")
             return
 
         message_list = self.buildLeaderboardMessageList(race_id)
