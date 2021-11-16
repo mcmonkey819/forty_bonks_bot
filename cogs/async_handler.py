@@ -168,11 +168,20 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
                 tens += 10
             ones_digit = place - tens
             if ones_digit == 1:
-                place_str += "st"
+                if tens == 10:
+                    place_str += "th"
+                else:
+                    place_str += "st"
             elif ones_digit == 2:
-                place_str += "nd"
+                if tens == 10:
+                    place_str += "th"
+                else:
+                    place_str += "nd"
             elif ones_digit == 3:
-                place_str += "rd"
+                if tens == 10:
+                    place_str += "th"
+                else:
+                    place_str += "rd"
             else:
                 place_str += "th"
 
@@ -284,6 +293,13 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
     async def assignWeeklyAsyncRole(self, ctx):
         role = discord.utils.get(ctx.guild.roles, id=self.weekly_racer_role)
         await ctx.author.add_roles(role)
+
+    ####################################################################################################################
+    # Removes the weekly async racer role from all users in the server
+    async def removeWeeklyAsyncRole(self, ctx):
+        role = discord.utils.get(ctx.guild.roles, id=self.weekly_racer_role)
+        for m in ctx.guild.members:
+            await m.remove_roles(role)
 
     ####################################################################################################################
     # Queries the most recent weekly async race ID
@@ -654,10 +670,11 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
                     try:
                         raw_msg = await self.bot.wait_for('message', timeout=60, check=checkChoice)
                         user_choice_msg = raw_msg.content
-                        await question.delete()
                         await raw_msg.delete()
                     except asyncio.TimeoutError:
                         await ctx.send(timeout_msg, delete_after=DeleteAfterTime)
+
+                    await question.delete()
 
                     if user_choice_msg is None: return
 
@@ -826,7 +843,9 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
             self.cursor.execute(start_race_sql)
             self.db_connection.commit()
             await ctx.send("Started race {}".format(race_id))
-            await self.updateWeeklyModeMessage(race_info)
+            if race_info[ASYNC_RACES_CATEGORY_ID] == self.weekly_category_id:
+                await self.updateWeeklyModeMessage(race_info)
+                await self.removeWeeklyAsyncRole(ctx)
 
 ########################################################################################################################
 # REMOVE_RACE
@@ -966,6 +985,8 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
     @commands.Cog.listener("on_ready")
     async def on_ready_handler(self):
         logging.info("Ready")
+        if self.test_mode:
+            logging.info("Running in test mode")
 
 
 def setup(bot):
