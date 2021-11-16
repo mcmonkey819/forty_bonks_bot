@@ -35,6 +35,8 @@ TEST_DB = "testDbUtil.db"
 DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
 NextPageEmoji = '▶️'
+PoopEmoji = '💩'
+ToiletPaperEmoji = '🧻'
 WeeklySubmitInstructions = '''
 To submit a time for the weekly async enter the in-game time (IGT) in H:MM:SS format followed by the collection rate. The bot will prompt you to add additional information (e.g RTA, next mode suggestion, comment).
 Example:
@@ -988,11 +990,27 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
             await asyncio.sleep(DeleteAfterTime)
             await message.delete()
 
+########################################################################################################################
+# ON_READY
+########################################################################################################################
     @commands.Cog.listener("on_ready")
     async def on_ready_handler(self):
         logging.info("Ready")
         if self.test_mode:
             logging.info("Running in test mode")
+
+########################################################################################################################
+# REACTION ADD HANDLER
+########################################################################################################################
+    @commands.Cog.listener("on_raw_reaction_add")
+    async def reaction_add_handler(self, payload):
+        if str(payload.emoji) == PoopEmoji:
+            logging.info("Cleaning up some poop")
+            guild = self.bot.get_guild(payload.guild_id)
+            channel = guild.get_channel(payload.channel_id)
+            message = await channel.fetch_message(payload.message_id)
+            await message.remove_reaction(payload.emoji, payload.member)
+            await message.add_reaction(ToiletPaperEmoji)
 
 
 def setup(bot):
