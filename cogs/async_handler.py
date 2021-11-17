@@ -36,9 +36,8 @@ DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
 NextPageEmoji = '▶️'
 PoopEmoji = '💩'
-CustomPoopEmojiIds = [ 910278257428004905, 910278257428004905, 910278257428004905 ]
 ToiletPaperEmoji = '🧻'
-PendantPodEmoteId = 910299397907181678
+PendantPodEmoteStr = '<:laoPoD:809226000550199306>'
 WeeklySubmitInstructions = '''
 To submit a time for the weekly async enter the in-game time (IGT) in H:MM:SS format followed by the collection rate. The bot will prompt you to add additional information (e.g RTA, next mode suggestion, comment).
 Example:
@@ -404,7 +403,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
     ####################################################################################################################
     # Checks if the provided emoji is a poop emoji....  sigh...
     def isPoopEmoji(self, emoji):
-        if str(emoji) == PoopEmoji or emoji.id in CustomPoopEmojiIds:
+        if str(emoji) == PoopEmoji:
             return True
         else:
             return False
@@ -1002,9 +1001,13 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 
         if "pendant pod" in message.content.lower():
             logging.info("adding pendant pod emoji")
-            emoji = self.bot.get_emoji(PendantPodEmoteId)
+            guild = self.bot.get_guild(self.server_id)
+            emoji = None
+            for e in guild.emojis:
+                if str(e) == PendantPodEmoteStr:
+                    emoji = e
             if emoji is not None:
-                message.add_reaction(emoji)
+                await message.add_reaction(emoji)
 
 ########################################################################################################################
 # ON_READY
