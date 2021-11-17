@@ -36,7 +36,9 @@ DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
 NextPageEmoji = '▶️'
 PoopEmoji = '💩'
+CustomPoopEmojiIds = [ 910278257428004905, 910278257428004905, 910278257428004905 ]
 ToiletPaperEmoji = '🧻'
+PendantPodEmoteId = 910299397907181678
 WeeklySubmitInstructions = '''
 To submit a time for the weekly async enter the in-game time (IGT) in H:MM:SS format followed by the collection rate. The bot will prompt you to add additional information (e.g RTA, next mode suggestion, comment).
 Example:
@@ -398,6 +400,14 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         member_info = self.cursor.execute(QueryRacerDataSql.format(member.id)).fetchone()
         if member_info is None:
             self.cursor.execute(AddRacerSql.format(member.id, member.name))
+
+    ####################################################################################################################
+    # Checks if the provided emoji is a poop emoji....  sigh...
+    def isPoopEmoji(self, emoji):
+        if str(emoji) == PoopEmoji or emoji.id in CustomPoopEmojiIds:
+            return True
+        else:
+            return False
 
 ########################################################################################################################
 # DASH
@@ -990,6 +1000,12 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
             await asyncio.sleep(DeleteAfterTime)
             await message.delete()
 
+        if "pendant pod" in message.content.lower():
+            logging.info("adding pendant pod emoji")
+            emoji = self.bot.get_emoji(PendantPodEmoteId)
+            if emoji is not None:
+                message.add_reaction(emoji)
+
 ########################################################################################################################
 # ON_READY
 ########################################################################################################################
@@ -1004,7 +1020,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 ########################################################################################################################
     @commands.Cog.listener("on_raw_reaction_add")
     async def reaction_add_handler(self, payload):
-        if str(payload.emoji) == PoopEmoji:
+        if self.isPoopEmoji(payload.emoji):
             logging.info("Cleaning up some poop")
             guild = self.bot.get_guild(payload.guild_id)
             channel = guild.get_channel(payload.channel_id)
