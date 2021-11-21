@@ -386,7 +386,10 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         for message in message_list:
             if message.author.id == self.bot.user.id:
                 await message.delete()
-        await weekly_submit_channel.send(WeeklySubmitInstructions + "\n\nThe mode for the current async is: **{}**".format(race_info[ASYNC_RACES_DESC]))
+        full_msg = WeeklySubmitInstructions + "\n\nThe mode for the current async is: **{}**".format(race_info[ASYNC_RACES_DESC])
+        if race_info[ASYNC_RACES_ADDL_INSTRUCTIONS] is not None:
+            full_msg += "\nAdditional Info: {}".format(race_info[ASYNC_RACES_ADDL_INSTRUCTIONS])
+        await weekly_submit_channel.send(full_msg)
         seed_embed = discord.Embed(title="{}".format(race_info[ASYNC_RACES_DESC]), url=race_info[ASYNC_RACES_SEED], color=discord.Colour.random())
         seed_embed.set_thumbnail(url="https://alttpr.com/i/logo_h.png")
         await weekly_submit_channel.send(embed=seed_embed)
@@ -598,7 +601,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
             self.pt.add_row(["Seed", race_info[ASYNC_RACES_SEED]])
             self.pt.add_row(["Mode", race_info[ASYNC_RACES_DESC]])
             if race_info[ASYNC_RACES_ADDL_INSTRUCTIONS] is not None:
-                self.pt.add_row(["Add'l Instructions", race_info[ASYNC_RACES_ADDL_INSTRUCTIONS]])
+                self.pt.add_row(["Add'l Info", race_info[ASYNC_RACES_ADDL_INSTRUCTIONS]])
             table_message_list = self.buildResponseMessageList(self.pt.get_string())
             for table_message in table_message_list:
                 await ctx.send("`{}`".format(table_message))
@@ -763,7 +766,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 
         mode = mode[:50]
 
-        msg = await self.ask(ctx, "Are there additional instructions? Reply with 'No' or the instructions text", checkSameAuthor)
+        msg = await self.ask(ctx, "Is there any additional info? Reply with 'No' or the info text", checkSameAuthor)
         if msg is None: return
 
         instructions = "NULL" 
@@ -817,7 +820,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         edit_choice = 0
         is_updated = False
         while edit_choice != 4:
-            edit_question = "What do you want to edit:\n  1 - Seed Link\n  2 - Mode\n  3 - Additional Instructions\n  4 - I'm done"
+            edit_question = "What do you want to edit:\n  1 - Seed Link\n  2 - Mode\n  3 - Additional Info\n  4 - I'm done"
             edit_choice_msg = await self.ask(ctx, edit_question, checkChoice)
             if edit_choice_msg is None: return
             edit_choice = int(edit_choice_msg)
