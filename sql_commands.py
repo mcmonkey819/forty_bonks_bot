@@ -162,6 +162,11 @@ WHERE category_id={} AND active=1
 ORDER BY start DESC
 LIMIT 5 OFFSET {};'''
 
+# Query a specific user submission by ID
+QueryAsyncSubmissionByIdSql = '''
+SELECT * FROM async_submissions
+WHERE id={};'''
+
 # Query user submissions. First parameter is user_id, second parameter is offset start (e.g. 0, 5, 10, etc)
 QueryRecentUserSubmissionsSql = '''
 SELECT * FROM async_submissions

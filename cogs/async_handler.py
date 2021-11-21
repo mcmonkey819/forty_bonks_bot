@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+7# -*- coding: utf-8 -*-
 
 from discord.ext import commands
 import discord
@@ -81,6 +81,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         self.weekly_submit_author_list = []
         self.weekly_racer_role = FORTY_BONKS_WEEKLY_RACER_ROLE
         self.weekly_leaderboard_channel = FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL
+        self.replace_poop_with_tp = True
 
 ########################################################################################################################
 # Utility Functions
@@ -247,6 +248,9 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         try:
             raw_msg = await self.bot.wait_for('message', timeout=60, check=checkRta)
             rta = raw_msg.content
+            # Fix RTA with missing zero in hour place
+            if len(rta.split(':')) == 2:
+                rta = "0:" + rta
             await question_msg.delete()
             await raw_msg.delete()
         except asyncio.TimeoutError:
@@ -408,6 +412,54 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         else:
             return False
 
+    ####################################################################################################################
+    # Displays race submissions for the given user_id
+    async def show_races(self, ctx, start, user_id):
+        # SQL is funny, providing an offset of 10 will show results 11 and later. This is counter intuitive so this command expresses it as a starting point
+        # instead. So our offset is simply (start - 1)
+        offset = (start - 1)
+        race_data_sql = QueryRecentUserSubmissionsSql.format(user_id, offset)
+        self.cursor.execute(race_data_sql)
+        query_results = self.cursor.fetchall()
+
+        if len(query_results) > 0:
+            self.resetPrettyTable()
+            self.pt.hrules = True
+            self.pt.field_names = ["Date", "Place", "IGT", "Collection Rate", "RTA", "Mode", "Race ID", "Submission ID"]
+            self.pt._max_width = {"Mode": 50}
+            for result in query_results:
+                # First find info about the race this submission is for
+                race_id = result[ASYNC_SUBMISSIONS_RACE_ID]
+                self.cursor.execute(QueryRaceInfoSql.format(race_id))
+                race_info    = self.cursor.fetchone()
+                date        = result[ASYNC_SUBMISSIONS_SUBMIT_DATE]
+                mode        = race_info[ASYNC_RACES_DESC]
+                igt         = result[ASYNC_SUBMISSIONS_IGT]
+                cr          = result[ASYNC_SUBMISSIONS_COLLECTION]
+                rta         = result[ASYNC_SUBMISSIONS_RTA]
+                submit_id   = result[ASYNC_SUBMISSIONS_ID]
+                place       = self.get_place(race_id, user_id)
+
+                if rta is None: rta = ""
+                self.pt.add_row([date, place, igt, cr, rta, mode, race_id, submit_id])
+
+            self.cursor.execute(QueryUserSubmissionsSql.format(user_id))
+            total_submissions = self.cursor.fetchone()[0]
+            response_str = "Recent Async Submissions {} - {} (out of {}):\n".format(start, min((start+4), total_submissions), total_submissions)
+            message_list = self.buildResponseMessageList(response_str)
+            table_message_list = self.buildResponseMessageList(self.pt.get_string())
+            for message in message_list:
+                await ctx.send(message)
+            message = None
+            for table_message in table_message_list:
+                message = await ctx.send("`{}`".format(table_message))
+
+            if message is not None:
+                if await self.userReactNextPage(ctx, message):
+                    await self.my_races(ctx, start+5)
+        else:
+            await ctx.send("There are no async submissions in that range")
+
 ########################################################################################################################
 # DASH
 ########################################################################################################################
@@ -434,52 +486,8 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         '''
         logging.info('Executing $my_races command')
         self.checkAddMember(ctx.author)
-        # SQL is funny, providing an offset of 10 will show results 11 and later. This is counter intuitive so this command expresses it as a starting point
-        # instead. So our offset is simply (start - 1)
-        offset = (start - 1)
-        category = '40 Bonks Weekly'
         user_id = ctx.author.id
-        race_data_sql = QueryRecentUserSubmissionsSql.format(user_id, offset)
-        self.cursor.execute(race_data_sql)
-        query_results = self.cursor.fetchall()
-
-        if len(query_results) > 0:
-            self.resetPrettyTable()
-            self.pt.hrules = True
-            self.pt.field_names = ["Date", "Place", "IGT", "Collection Rate", "RTA", "Mode", "Race ID", "Submission ID"]
-            self.pt._max_width = {"Mode": 50}
-            for result in query_results:
-                # First find info about the race this submission is for
-                race_id = result[ASYNC_SUBMISSIONS_RACE_ID]
-                self.cursor.execute(QueryRaceInfoSql.format(race_id))
-                race_info    = self.cursor.fetchone()
-                date        = result[ASYNC_SUBMISSIONS_SUBMIT_DATE]
-                mode        = race_info[ASYNC_RACES_DESC]
-                igt         = result[ASYNC_SUBMISSIONS_IGT]
-                cr          = result[ASYNC_SUBMISSIONS_COLLECTION]
-                rta         = result[ASYNC_SUBMISSIONS_RTA]
-                submit_id   = result[ASYNC_SUBMISSIONS_ID]
-                place       = self.get_place(race_id, user_id)
-
-                if rta is None: rta = ""
-                self.pt.add_row([date, place, igt, cr, rta, mode, race_id, submit_id])
-
-            self.cursor.execute(QueryUserSubmissionsSql.format(ctx.author.id))
-            total_submissions = self.cursor.fetchone()[0]
-            response_str = "Recent Async Submissions {} - {} (out of {}):\n".format(start, min((start+4), total_submissions), total_submissions)
-            message_list = self.buildResponseMessageList(response_str)
-            table_message_list = self.buildResponseMessageList(self.pt.get_string())
-            for message in message_list:
-                await ctx.send(message)
-            message = None
-            for table_message in table_message_list:
-                message = await ctx.send("`{}`".format(table_message))
-
-            if message is not None:
-                if await self.userReactNextPage(ctx, message):
-                    await self.my_races(ctx, start+5)
-        else:
-            await ctx.send("There are no async submissions in that range")
+        await self.show_races(ctx, start, user_id)
 
 ########################################################################################################################
 # LEADERBOARD
@@ -501,11 +509,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 
         # We want to direct users to the leaderboard channel for the current async
         if int(race_id) == latest_race_id:
-            if self.isRaceCreator(ctx):
-                await self.updateLeaderboardMessage(race_id, ctx)
-                await ctx.send("Updated weekly leaderboard channel")
-            else:
-                await ctx.send("To view the current async leaderboard submit a time or FF in the weekly submit channel and the leaderboard channel will become visible")
+            await ctx.send("To view the current async leaderboard submit a time or FF in the weekly submit channel and the leaderboard channel will become visible")
             return
 
         message_list = self.buildLeaderboardMessageList(race_id)
@@ -657,6 +661,10 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         except ValueError:
             parse_error = True
 
+        # Fix IGT with missing zero in hour place
+        if len(igt.split(':')) == 2:
+            igt = "0:" + igt
+
         if parse_error:
             await ctx.send("IGT or CR is in the wrong format, evaluate your life choices and try again", delete_after=DeleteAfterTime)
         else:
@@ -799,7 +807,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
             if message.author == ctx.author:
                 if len(message.content) == 1:
                     value = int(message.content)
-                    if value >= 1 and value <= 6:
+                    if value >= 1 and value <= 4:
                         ret = True
             return ret
 
@@ -873,7 +881,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
     async def remove_race(self, ctx: commands.Context, race_id: int):
         ''' 
         Removes an async race with the given race_id
-    
+
             Required Parameters:
                 race_id - ID of the race being removed.
         '''
@@ -945,7 +953,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         logging.info('Executing $wheel_info command')
         racers = self.cursor.execute(QueryAllRacerDataSql).fetchall()
         # Query the 5 most recent weekly races
-        recent_races = self.cursor.execute(QueryMostRecentActiveFromCategorySql.format(self.weekly_category_id, 0)).fetchall()
+        recent_races = self.cursor.execute(QueryMostRecentActiveFromSql.format(self.weekly_category_id, 0)).fetchall()
         race_id_range_begin = recent_races[0][ASYNC_RACES_ID]
         race_id_range_end   = recent_races[1][ASYNC_RACES_ID]
         wheel_list_str = "*Name* > *Mode*\n"
@@ -965,6 +973,101 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
                     wheel_list_str += "{} > {}\n".format(r[ASYNC_RACERS_USERNAME], mode_str.strip().replace('\n', ' '))
 
         await ctx.send(wheel_list_str)
+
+########################################################################################################################
+# MOD_UTIL
+########################################################################################################################
+    @commands.command(hidden=True)
+    @commands.check(isRaceCreatorCommandChannel)
+    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    async def mod_util(self, ctx: commands.Context, function: int):
+        ''' 
+        A selection of utility functions. Parameter determines which function to run:
+
+            Required Parameter:
+                function - Which utility function to run. Options are:
+                    1 - Force update leaderboard message
+                    2 - Force update weekly submit channel message
+                    3 - Toggle enable/disable of toilet paper
+        '''
+        logging.info('Executing $mod_util command')
+        if function == 1:
+            await self.updateLeaderboardMessage(self.queryLatestRaceId(), ctx)
+            await ctx.send("Updated weekly leaderboard channel")
+        elif function == 2:
+            race_info = self.queryRaceInfo(self.queryLatestRaceId())
+            await self.updateWeeklyModeMessage(race_info)
+            await ctx.send("Updated weekly mode message in submit channel")
+        elif function == 3:
+            self.replace_poop_with_tp = not self.replace_poop_with_tp
+            await ctx.send("Toilet paper replacement is now {}".format("Enabled" if self.replace_poop_with_tp else "Disabled"))
+
+########################################################################################################################
+# USER_RACES
+########################################################################################################################
+    @commands.command(hidden=True)
+    @commands.check(isRaceCreatorCommandChannel)
+    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    async def user_races(self, ctx: commands.Context, user_id: int):
+        ''' 
+        Shows races for the user with the provided user ID
+
+            Required Parameter:
+                user_id - ID of the user to edit a submission for
+        '''
+        logging.info('Executing $user_races command')
+        member_info = self.cursor.execute(QueryRacerDataSql.format(user_id)).fetchone()
+        if member_info is None:
+            await ctx.send("No user found with ID {}".format(user_id))
+            return
+        await ctx.send("Showing races for {}".format(member_info[ASYNC_RACERS_USERNAME]))
+        await self.show_races(ctx, 1, user_id)
+
+
+########################################################################################################################
+# EDIT_SUBMISSION
+########################################################################################################################
+    @commands.command(hidden=True)
+    @commands.check(isRaceCreatorCommandChannel)
+    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    async def edit_submission(self, ctx: commands.Context, submission_id: int):
+        ''' 
+        Edits a submission on behalf of a user
+
+            Required Parameter:
+                submission_id - ID of the submission to edit
+        '''
+        logging.info('Executing $edit_submission command')
+        submission_to_edit = self.cursor.execute(QueryAsyncSubmissionByIdSql.format(submission_id)).fetchone()
+        if submission_to_edit is None:
+            await ctx.send("No submission found with ID {}".format(submission_id))
+            return
+
+        def checkInfo(message):
+            ret = False
+            if len(message.content.split(' ')) >= 2 and len(message.content.split(' ')) <= 3:
+                ret = True
+            return ret
+
+        new_info_prompt = "Enter the new info as follows, RTA can be left out if unavailable: `<IGT in H:MM:SS> <cr> {RTA in H:MM:SS}`"
+        info_msg = await self.ask(ctx, new_info_prompt, checkInfo)
+        parts = info_msg.split(' ')
+        if self.game_time_is_valid(parts[0]):
+            new_igt = parts[0]
+            new_collection = parts[1]
+            new_rta = None
+            if len(parts) == 3 and self.game_time_is_valid(parts[2]):
+                new_rta = parts[2]
+            update_sql = UpdateAsyncSubmissionSql.format(submission_to_edit[ASYNC_SUBMISSIONS_SUBMIT_DATE],
+                                                         new_rta,
+                                                         new_igt,
+                                                         new_collection,
+                                                         submission_to_edit[ASYNC_SUBMISSIONS_NEXT_MODE],
+                                                         submission_to_edit[ASYNC_SUBMISSIONS_COMMENT],
+                                                         submission_to_edit[ASYNC_SUBMISSIONS_ID])
+            self.cursor.execute(update_sql)
+            self.db_connection.commit()
+            await ctx.send("Updated submission ID {}".format(submission_to_edit[ASYNC_SUBMISSIONS_ID]))
 
 ########################################################################################################################
 # ON_MESSAGE
@@ -1029,7 +1132,8 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
             channel = guild.get_channel(payload.channel_id)
             message = await channel.fetch_message(payload.message_id)
             await message.remove_reaction(payload.emoji, payload.member)
-            await message.add_reaction(ToiletPaperEmoji)
+            if self.replace_poop_with_tp:
+                await message.add_reaction(ToiletPaperEmoji)
 
 
 def setup(bot):
