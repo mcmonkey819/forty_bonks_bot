@@ -956,7 +956,7 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
         logging.info('Executing $wheel_info command')
         racers = self.cursor.execute(QueryAllRacerDataSql).fetchall()
         # Query the 5 most recent weekly races
-        recent_races = self.cursor.execute(QueryMostRecentActiveFromSql.format(self.weekly_category_id, 0)).fetchall()
+        recent_races = self.cursor.execute(QueryMostRecentActiveFromCategorySql.format(self.weekly_category_id, 0)).fetchall()
         race_id_range_begin = recent_races[0][ASYNC_RACES_ID]
         race_id_range_end   = recent_races[1][ASYNC_RACES_ID]
         wheel_list_str = "*Name* > *Mode*\n"
