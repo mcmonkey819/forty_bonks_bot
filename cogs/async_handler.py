@@ -64,7 +64,7 @@ async def isBotCommandChannel(ctx):
     return False
 
 timeout_msg = "Timeout error. I don't have all day! You'll have to start over (and be quicker this time)"
-class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
+class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     '''Cog which handles commands related to Async Races.'''
 
     def __init__(self, bot):
@@ -1120,9 +1120,9 @@ class AsyncHandler(commands.Cog, name='40 Bonks Bot Async Commands'):
 ########################################################################################################################
     @commands.Cog.listener("on_ready")
     async def on_ready_handler(self):
-        logging.info("Ready")
+        logging.info("Async Handler Ready")
         if self.test_mode:
-            logging.info("Running in test mode")
+            logging.info("  Running in test mode")
 
 ########################################################################################################################
 # REACTION ADD HANDLER
