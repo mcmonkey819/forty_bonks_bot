@@ -16,9 +16,10 @@ FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL = 907626630816620624
 FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL = 907626794474156062
 FORTY_BONKS_BOT_COMMAND_CHANNELS = [ 907627122732982363, FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL ]
 FORTY_BONKS_RACE_CREATOR_ROLE = 782804969107226644
-FORTY_BONKS_WEEKLY_RACER_ROLE = 732078040892440736
+FORTY_BONKS_WEEKLY_RACE_DONE_ROLE = 732078040892440736
 FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL = 747239559175208961
 FORTY_BONKS_ANNOUNCEMENTS_CHANNEL = 734104388821450834
+FORTY_BONKS_WEEKLY_RACER_ROLE = 732048874222387200
 
 # Bot Testing Things Server Info
 BTT_SERVER_ID = 853060981528723468
@@ -26,9 +27,10 @@ BTT_RACE_CREATOR_ROLE = 888940865337299004
 BTT_WEEKLY_SUBMIT_CHANNEL = 892861800612249680
 BTT_RACE_CREATOR_COMMAND_CHANNEL = 896494916493004880
 BTT_BOT_COMMAND_CHANNELS = [ 853061634855665694, 854508026832748544, BTT_RACE_CREATOR_COMMAND_CHANNEL ]
-BTT_WEEKLY_RACER_ROLE = 895026847954374696
+BTT_WEEKLY_RACE_DONE_ROLE = 895026847954374696
 BTT_WEEKLY_LEADERBOARD_CHANNEL = 895681087701909574
 BTT_ANNOUNCEMENTS_CHANNEL = 896494916493004880
+BTT_WEEKLY_RACER_ROLE = 931946945562423369
 
 PRODUCTION_DB = "AsyncRaceInfo.db"
 TEST_DB = "testDbUtil.db"
@@ -82,6 +84,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.weekly_submit_channel_id = FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL
         self.weekly_submit_author_list = []
         self.weekly_racer_role = FORTY_BONKS_WEEKLY_RACER_ROLE
+        self.weekly_race_done_role = FORTY_BONKS_WEEKLY_RACE_DONE_ROLE
         self.weekly_leaderboard_channel = FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL
         self.announcements_channel = FORTY_BONKS_ANNOUNCEMENTS_CHANNEL
         self.replace_poop_with_tp = True
@@ -97,6 +100,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.race_creator_role_id = BTT_RACE_CREATOR_ROLE
         self.weekly_submit_channel_id = BTT_WEEKLY_SUBMIT_CHANNEL
         self.weekly_racer_role = BTT_WEEKLY_RACER_ROLE
+        self.weekly_race_done_role = BTT_WEEKLY_RACE_DONE_ROLE
         self.weekly_leaderboard_channel = BTT_WEEKLY_LEADERBOARD_CHANNEL
         self.announcements_channel = BTT_ANNOUNCEMENTS_CHANNEL
 
@@ -302,13 +306,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Assigns the weekly async racer role, which unlocks access to the spoiler channel
     async def assignWeeklyAsyncRole(self, ctx):
-        role = discord.utils.get(ctx.guild.roles, id=self.weekly_racer_role)
+        role = discord.utils.get(ctx.guild.roles, id=self.weekly_race_done_role)
         await ctx.author.add_roles(role)
 
     ####################################################################################################################
     # Removes the weekly async racer role from all users in the server
     async def removeWeeklyAsyncRole(self, ctx):
-        role = discord.utils.get(ctx.guild.roles, id=self.weekly_racer_role)
+        role = discord.utils.get(ctx.guild.roles, id=self.weekly_race_done_role)
         for m in ctx.guild.members:
             await m.remove_roles(role)
 
@@ -330,7 +334,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
         leaderboardStr = ""
         if len(race_submissions) == 0:
-            leaderboard_str = "No results yet for race {} which started on {}".format(race_id, raceInfo[ASYNC_RACES_START])
+            leaderboard_str = "No results yet for race {} ({}) which started on {}".format(race_id, raceInfo[ASYNC_RACES_DESC], raceInfo[ASYNC_RACES_START])
         else:
             leaderboard_str = "Leaderboard for race {} which started on {}".format(race_id, raceInfo[ASYNC_RACES_START])
             if raceInfo is not None:
@@ -400,10 +404,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     ####################################################################################################################
     # Posts an announcement about a new weekly async
-    async def postAnnoucement(self, race_info):
+    async def post_annoucement(self, race_info, ctx):
         announcements_channel = self.bot.get_channel(self.announcements_channel)
-        announcement_msg = f"<@!{self.weekly_racer_role}> The new weekly async is live! Mode is {race_info[ASYNC_RACES_DESC]}")
-        await announcements_channel.send(announcement_msg)
+        role = ctx.guild.get_role(self.weekly_racer_role)
+        announcement_text = f"{role.mention} The new weekly async is live! Mode is: {race_info[ASYNC_RACES_DESC]}"
+        msg = await announcements_channel.send(announcement_text)
+        
 
     ####################################################################################################################
     # Fetches a users display name
@@ -761,12 +767,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
     @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
-    async def add_race(self, ctx: commands.Context, seed):
+    async def add_race(self, ctx: commands.Context, seed, should_start=0):
         ''' 
         Adds a new async race
     
             Parameters:
                 seed - link to the seed or patch file for the race
+                should_start (optional) - Set to 1 if you'd like to run the `$start_race` command immediately after adding
         '''
         logging.info('Executing $add_race command')
         def checkSameAuthor(message):
@@ -791,6 +798,10 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         race_id = self.cursor.lastrowid
         await ctx.send("Added race ID: {}".format(race_id))
         self.db_connection.commit()
+        
+        if should_start != 0:
+            await self.start_race(ctx, race_id)
+
 
 ########################################################################################################################
 # EDIT_RACE
@@ -886,7 +897,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 await self.updateWeeklyModeMessage(race_info)
                 await self.updateLeaderboardMessage(race_id, ctx)
                 await self.removeWeeklyAsyncRole(ctx)
-                await self.postAnnoucement(race_info)
+                await self.post_annoucement(race_info, ctx)
 
 ########################################################################################################################
 # REMOVE_RACE
