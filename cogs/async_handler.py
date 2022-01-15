@@ -18,6 +18,7 @@ FORTY_BONKS_BOT_COMMAND_CHANNELS = [ 907627122732982363, FORTY_BONKS_RACE_CREATO
 FORTY_BONKS_RACE_CREATOR_ROLE = 782804969107226644
 FORTY_BONKS_WEEKLY_RACER_ROLE = 732078040892440736
 FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL = 747239559175208961
+FORTY_BONKS_ANNOUNCEMENTS_CHANNEL = 734104388821450834
 
 # Bot Testing Things Server Info
 BTT_SERVER_ID = 853060981528723468
@@ -27,6 +28,7 @@ BTT_RACE_CREATOR_COMMAND_CHANNEL = 896494916493004880
 BTT_BOT_COMMAND_CHANNELS = [ 853061634855665694, 854508026832748544, BTT_RACE_CREATOR_COMMAND_CHANNEL ]
 BTT_WEEKLY_RACER_ROLE = 895026847954374696
 BTT_WEEKLY_LEADERBOARD_CHANNEL = 895681087701909574
+BTT_ANNOUNCEMENTS_CHANNEL = 896494916493004880
 
 PRODUCTION_DB = "AsyncRaceInfo.db"
 TEST_DB = "testDbUtil.db"
@@ -81,6 +83,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.weekly_submit_author_list = []
         self.weekly_racer_role = FORTY_BONKS_WEEKLY_RACER_ROLE
         self.weekly_leaderboard_channel = FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL
+        self.announcements_channel = FORTY_BONKS_ANNOUNCEMENTS_CHANNEL
         self.replace_poop_with_tp = True
 
 ########################################################################################################################
@@ -95,6 +98,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.weekly_submit_channel_id = BTT_WEEKLY_SUBMIT_CHANNEL
         self.weekly_racer_role = BTT_WEEKLY_RACER_ROLE
         self.weekly_leaderboard_channel = BTT_WEEKLY_LEADERBOARD_CHANNEL
+        self.announcements_channel = BTT_ANNOUNCEMENTS_CHANNEL
 
     def resetPrettyTable(self):
         self.pt.set_style(DEFAULT)
@@ -393,6 +397,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         seed_embed = discord.Embed(title="{}".format(race_info[ASYNC_RACES_DESC]), url=race_info[ASYNC_RACES_SEED], color=discord.Colour.random())
         seed_embed.set_thumbnail(url="https://alttpr.com/i/logo_h.png")
         await weekly_submit_channel.send(embed=seed_embed)
+
+    ####################################################################################################################
+    # Posts an announcement about a new weekly async
+    async def postAnnoucement(self, race_info):
+        announcements_channel = self.bot.get_channel(self.announcements_channel)
+        announcement_msg = f"<@!{self.weekly_racer_role}> The new weekly async is live! Mode is {race_info[ASYNC_RACES_DESC]}")
+        await announcements_channel.send(announcement_msg)
 
     ####################################################################################################################
     # Fetches a users display name
@@ -873,7 +884,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             await ctx.send("Started race {}".format(race_id))
             if race_info[ASYNC_RACES_CATEGORY_ID] == self.weekly_category_id:
                 await self.updateWeeklyModeMessage(race_info)
+                await self.updateLeaderboardMessage(race_id, ctx)
                 await self.removeWeeklyAsyncRole(ctx)
+                await self.postAnnoucement(race_info)
 
 ########################################################################################################################
 # REMOVE_RACE
