@@ -441,6 +441,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         race_data_sql = QueryRecentUserSubmissionsSql.format(user_id, offset)
         self.cursor.execute(race_data_sql)
         query_results = self.cursor.fetchall()
+        latest_race_id = self.queryLatestRaceId()
 
         if len(query_results) > 0:
             self.resetPrettyTable()
@@ -461,6 +462,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 place       = self.get_place(race_id, user_id)
 
                 if rta is None: rta = ""
+
+                # Hide completion info if this is the current weekly async
+                if race_id == latest_race_id:
+                    igt = "**:**:**"
+                    rta = "**:**:**"
+                    cr = "***"
+                    place = "****"
                 self.pt.add_row([date, place, igt, cr, rta, mode, race_id, submit_id])
 
             self.cursor.execute(QueryUserSubmissionsSql.format(user_id))
