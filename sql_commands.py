@@ -62,7 +62,6 @@ CREATE TABLE IF NOT EXISTS async_submissions (
     finish_time_rta TEXT,
     finish_time_igt TEXT NOT NULL,
     collection_rate INTEGER,
-    partner TEXT,
     next_mode TEXT
     );'''
 
