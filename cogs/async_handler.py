@@ -101,9 +101,10 @@ async def isBotCommandChannel(ctx):
         return True
     return False
 
-class SubmitTime(nextcord.ui.Modal):
-    def __init__(self):
+class SubmitTimeModal(nextcord.ui.Modal):
+    def __init__(self, submit_callback):
         super().__init__("Async Time Submit")
+        self.submit_callback = submit_callback
 
         self.igt = nextcord.ui.TextInput(
             label="Enter IGT in format `H:MM:SS`",
@@ -125,10 +126,29 @@ class SubmitTime(nextcord.ui.Modal):
         self.add_item(self.rta)
 
     async def callback(self, interaction: nextcord.Interaction) -> None:
-        await interaction.send(f"Submitted time for {interaction.user.mention}", ephemeral=True, delete_after=DeleteAfterTime)
+        await self.submit_callback(interaction)
 
+class SubmitTimeView(nextcord.ui.View):
+    def __init__(self, submit_callback, ff_callback):
+        super().__init__()
+        self.submit_modal = SubmitTimeModal(submit_callback)
+        self.ff_callback = ff_callback
+    
+    @nextcord.ui.button(style=nextcord.ButtonStyle.primary, label='Submit/Edit Time')
+    async def submit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        sent_modal = await interaction.response.send_modal(self.submit_modal)
+        # Wait for an interaction to be given back
+        interaction: nextcord.Interaction = await self.bot.wait_for(
+            "modal_submit", 
+            check=lambda i: i.data['custom_id'] == sent_modal.custom_id,
+        )  
+    
+    @nextcord.ui.button(style=nextcord.ButtonStyle.secondary, label='FF')
+    async def ff_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        await self.ff_callback(interaction)
 
 timeout_msg = "Timeout error. I don't have all day! You'll have to start over (and be quicker this time)"
+
 class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     '''Cog which handles commands related to Async Races.'''
 
@@ -577,6 +597,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                     await self.show_races(ctx, start+5, user_id)
         else:
             await ctx.send("There are no async submissions in that range")
+            
+    async def submit_callback(self, interaction: nextcord.Interaction):
+        logging.info("Received submit")
+        
+    async def ff_callback(self, interaction: nextcord.Interaction):
+        logging.info("Received FF")
 
 ########################################################################################################################
 # DASH
@@ -587,18 +613,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         ''' Go ahead, see what happens when you try to go fast'''
         logging.info('Executing $dash command')
         self.checkAddMember(ctx.author)
-        class ViewWithButton(nextcord.ui.View):
-            self.submit = SubmitTime()
-            @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Go Fast!')
-            async def click_me_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-                sent_modal = await interaction.response.send_modal(self.submit)
-                # Wait for an interaction to be given back
-                interaction: nextcord.Interaction = await self.bot.wait_for(
-                    "modal_submit", 
-                    check=lambda i: i.data['custom_id'] == sent_modal.custom_id,
-                )
 
-        await ctx.send("See what happens when you try to go fast", view=ViewWithButton())
+        await ctx.send("See what happens when you try to go fast", view=SubmitTimeView(self.submit_callback, self.ff_callback))
 
 ########################################################################################################################
 # MY_RACES
