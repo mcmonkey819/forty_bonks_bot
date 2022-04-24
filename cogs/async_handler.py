@@ -156,6 +156,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.bot = bot
         self.test_mode = False
         self.db_connection = sqlite3.connect(PRODUCTION_DB)
+        self.db = SqliteDatabase(PRODUCTION_DB)
         self.cursor = self.db_connection.cursor()
         self.weekly_category_id = 1
         self.tourney_category_id = 2
@@ -180,6 +181,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     def setTestMode(self):
         self.test_mode = True
         self.db_connection = sqlite3.connect(TEST_DB)
+        self.db = SqliteDatabase(TEST_DB)
         self.cursor = self.db_connection.cursor()
         self.server_id = BTT_SERVER_ID
         self.race_creator_role_id = BTT_RACE_CREATOR_ROLE

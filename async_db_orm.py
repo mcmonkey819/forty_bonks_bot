@@ -1,6 +1,7 @@
 from peewee import *
 
-db = SqliteDatabase('AsyncRaceInfo.db')
+db = SqliteDatabase('testDbUtil.db')
+db.connect()
 
 class RaceCategory(Model):
     id = IntegerField(primary_key=True)
@@ -47,5 +48,3 @@ class AsyncSubmission(Model):
     class Meta:
         database = db
         table_name = 'async_submissions'
-
-def AddRaceCategory()
