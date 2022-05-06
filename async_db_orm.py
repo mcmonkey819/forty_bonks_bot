@@ -48,3 +48,26 @@ class AsyncSubmission(Model):
     class Meta:
         database = db
         table_name = 'async_submissions'
+
+def format_igt_substr(igt):
+    ret_str = '0'
+    if igt is not None:
+        ret_str = igt[-8:]
+    return ret_str
+
+@db.collation('igt')
+def collate_igt(s1, s2):
+    if s1 is None:
+        s1 = '0:00:00'
+    if s2 is None:
+        s2 = '0:00:00'
+
+    parts1 = s1.split(':')
+    parts2 = s2.split(':')
+
+    cmp = (parts1[0] > parts2[0]) - (parts1[0] < parts2[0])
+    if cmp == 0:
+        cmp = (parts1[1] > parts2[1]) - (parts1[1] < parts2[1])
+    if cmp == 0:
+        cmp = (parts1[2] > parts2[2]) - (parts1[2] < parts2[2])
+    return cmp
