@@ -1,15 +1,11 @@
 from peewee import *
 
-db = SqliteDatabase('testDbUtil.db')
-db.connect()
-
 class RaceCategory(Model):
     id = IntegerField(primary_key=True)
     name = CharField()
     description = CharField()
 
     class Meta:
-        database = db
         table_name = 'race_categories'
 
 class AsyncRace(Model):
@@ -22,7 +18,6 @@ class AsyncRace(Model):
     active = BooleanField(default=False)
 
     class Meta:
-        database = db
         table_name = 'async_races'
 
 class AsyncRacer(Model):
@@ -31,7 +26,6 @@ class AsyncRacer(Model):
     wheel_weight = IntegerField()
 
     class Meta:
-        database = db
         table_name = 'async_racers'
 
 class AsyncSubmission(Model):
@@ -46,7 +40,6 @@ class AsyncSubmission(Model):
     next_mode = CharField(null=True)
 
     class Meta:
-        database = db
         table_name = 'async_submissions'
 
 def format_igt_substr(igt):
@@ -55,7 +48,6 @@ def format_igt_substr(igt):
         ret_str = igt[-8:]
     return ret_str
 
-@db.collation('igt')
 def collate_igt(s1, s2):
     if s1 is None:
         s1 = '0:00:00'

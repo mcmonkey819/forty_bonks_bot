@@ -9,6 +9,7 @@ from prettytable import PrettyTable, DEFAULT, ALL
 import re
 import asyncio
 from datetime import datetime, date
+from async_db_orm import *
 
 # 40 Bonks Server Info
 FORTY_BONKS_SERVER_ID = 485284146063736832
@@ -42,6 +43,7 @@ TEST_DB = "testDbUtil.db"
 # Discord limit is 2000 characters, subtract a few to account for formatting, newlines, etc
 DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
+ItemsPerPage = 10
 NextPageEmoji = '▶️'
 OneEmoji = '1️⃣'
 TwoEmoji = '2️⃣'
@@ -135,8 +137,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     def __init__(self, bot):
         self.bot = bot
         self.test_mode = False
-        self.db_connection = sqlite3.connect(PRODUCTION_DB)
-        self.cursor = self.db_connection.cursor()
+        self.db = SqliteDatabase(PRODUCTION_DB)
+        self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
         self.weekly_category_id = 1
         self.tourney_category_id = 2
         self.pt = PrettyTable()
@@ -159,8 +161,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     def setTestMode(self):
         self.test_mode = True
-        self.db_connection = sqlite3.connect(TEST_DB)
-        self.cursor = self.db_connection.cursor()
+        self.db = SqliteDatabase(TEST_DB)
+        self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
         self.server_id = BTT_SERVER_ID
         self.race_creator_role_id = BTT_RACE_CREATOR_ROLE
         self.weekly_submit_channel_id = BTT_WEEKLY_SUBMIT_CHANNEL
@@ -393,7 +395,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     # Queries the most recent weekly async race ID
     def queryLatestWeeklyRaceId(self):
         return AsyncRace.select()
-                        .where(AsyncRace.category_id == self.weekly_category_id and AsyncRace.active)
+                        .where(AsyncRace.category_id == self.weekly_category_id & AsyncRace.active)
                         .order_by(AsyncRace.id.desc())
                         .get()
                         .id
@@ -532,18 +534,16 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         else:
             return False
 
-### CMC ORM WORK LEFT OFF HERE ###
-
     ####################################################################################################################
     # Displays race submissions for the given user_id
     async def show_races(self, ctx, start, user_id):
-        # SQL is funny, providing an offset of 10 will show results 11 and later. This is counter intuitive so this command expresses
-        # it as a starting point instead. So our offset is simply (start - 1)
-        offset = (start - 1)
-        race_data_sql = QueryRecentUserSubmissionsSql.format(user_id, offset)
-        self.cursor.execute(race_data_sql)
-        query_results = self.cursor.fetchall()
-        latest_race_id = self.queryLatestWeeklyRaceId()
+        query_results = AsyncSubmission.select()
+                                       .join(AsyncRacer)
+                                       .where(AsyncRacer.user_id == user_id)
+                                       .order_by(AsyncSubmission.submit_date.desc())
+                                       .paginate(start/ItemsPerPage, ItemsPerPage)
+
+        latest_weekly_id = self.queryLatestWeeklyRaceId()
 
         if len(query_results) > 0:
             self.resetPrettyTable()
@@ -565,15 +565,14 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 if rta is None: rta = ""
 
                 # Hide completion info if this is the current weekly async
-                if race_id == latest_race_id:
+                if race_id == latest_weekly_id:
                     igt = "**:**:**"
                     rta = "**:**:**"
                     cr = "***"
                     place = "****"
                 self.pt.add_row([date, place, igt, cr, rta, mode, race_id, submit_id])
 
-            self.cursor.execute(QueryUserSubmissionsSql.format(user_id))
-            total_submissions = self.cursor.fetchone()[0]
+            total_submissions = AsyncSubmission.select(fn.COUNT(AsyncSubmission.id)).where(AsyncSubmission.user_id == user_id).get()
             response_str = "Recent Async Submissions {} - {} (out of {}):\n".format(start, min((start+4), total_submissions), total_submissions)
             message_list = self.buildResponseMessageList(response_str)
             table_message_list = self.buildResponseMessageList(self.pt.get_string())
@@ -598,7 +597,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         ''' Go ahead, see what happens when you try to go fast'''
         logging.info('Executing $dash command')
         self.checkAddMember(ctx.author)
-        
+
+        #### CMC Prototype View/Button code ########
         class ViewWithButton(nextcord.ui.View):
             self.submit = SubmitTime()
             @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Go Fast!')
@@ -611,6 +611,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 )
 
         await ctx.send("See what happens when you try to go fast", view=ViewWithButton())
+        #### CMC Prototype View/Button code ########
 
 ########################################################################################################################
 # MY_RACES
@@ -673,32 +674,29 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         '''
         logging.info('Executing $races command')
         self.checkAddMember(ctx.author)
-        # SQL is funny, providing an offset of 10 will show results 11 and later. This is counter intuitive so this command expresses it as a starting point
-        # instead. So our offset is simply (start - 1)
         offset = (start - 1)
         race_ids_sql = ""
         is_race_creator_channel = await isRaceCreatorCommandChannel(ctx)
-        if is_race_creator_channel:
-            race_ids_sql = QueryMostRecentFromCategorySql.format(category, offset)
-        else:
-            race_ids_sql = QueryMostRecentActiveFromCategorySql.format(category, offset)
-        self.cursor.execute(race_ids_sql)
-        race_ids_results = self.cursor.fetchall()
-        if len(race_ids_results) > 0:
+        races = AsyncRace.select()
+                         .where(AsyncRace.category_id == category & AsyncRace.active == is_race_creator_channel)
+                         .order_by(AsyncRace.id.desc())
+                         .paginate(start/ItemsPerPage, ItemsPerPage)
+        if len(races) > 0:
             self.resetPrettyTable()
             
             if is_race_creator_channel:
                 self.pt.field_names = ["ID", "Start Date", "Mode", "Active"]
             else:
                 self.pt.field_names = ["ID", "Start Date", "Mode"]
+
             self.pt._max_width = {"Mode": 50}
             self.pt.align["Mode"] = "l"
-            for race in race_ids_results:
+
+            for race in races:
                 if is_race_creator_channel:
-                    active_str = "Yes" if race[ASYNC_RACES_ACTIVE] == 1 else "No"
-                    self.pt.add_row([race[ASYNC_RACES_ID], race[ASYNC_RACES_START], race[ASYNC_RACES_DESC], active_str])
+                    self.pt.add_row(race.id, race.start, race.description, race.active])
                 else:
-                    self.pt.add_row([race[ASYNC_RACES_ID], race[ASYNC_RACES_START], race[ASYNC_RACES_DESC]])
+                    self.pt.add_row(race.id, race.start, race.description)
             table_message_list = self.buildResponseMessageList(self.pt.get_string())
             message = None
             for table_message in table_message_list:
@@ -766,27 +764,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         logging.info('Executing $submit_time command')
         self.checkAddMember(ctx.author)
         await ctx.message.delete()
-
-        # Check to see if there's already a submission for this race from this user
-        is_update = False
-        self.cursor.execute(QueryUserRaceSubmissions.format(race_id, ctx.author.id))
-        existing_submission = self.cursor.fetchone()
-        if existing_submission is not None:
-            def checkYesNo(message):
-                ret = False
-                if message.author == ctx.author:
-                    msg = message.content.lower()
-                    if msg == "yes" or msg == "no":
-                        ret = True
-                return ret
-            replace_msg = await ctx.send("You already have submitted a time for this race, react with thumbs up to replace with this time")
-            user_reaction = await self.userReactEmoji(ctx, replace_msg, YesNoEmojiList)
-            if user_reaction == ThumbsUpEmoji:
-                is_update = True
-            else:
-                await ctx.send("Submission cancelled", delete_after=DeleteAfterTime)
-                return
-
+        user_id = ctx.author.id
+       
         parse_error = not self.game_time_is_valid(igt)
         cr_int = 0
         try:
@@ -798,8 +777,31 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         if len(igt.split(':')) == 2:
             igt = "0:" + igt
 
+        # Check to see if there's already a submission for this race from this user
+        submission = AsyncSubmission.select()
+                                    .join(AsyncRace)
+                                    .where(AsyncRace.id == race_id & AsyncSubmission.user_id == user_id)
+                                    .get()
+
+        if submission is not None:
+            def checkYesNo(message):
+                ret = False
+                if message.author == ctx.author:
+                    msg = message.content.lower()
+                    if msg == "yes" or msg == "no":
+                        ret = True
+                return ret
+            replace_msg = await ctx.send("You already have submitted a time for this race, react with thumbs up to replace with this time")
+            user_reaction = await self.userReactEmoji(ctx, replace_msg, YesNoEmojiList)
+            if user_reaction != ThumbsUpEmoji:
+                await ctx.send("Submission cancelled", delete_after=DeleteAfterTime)
+                return
+        else
+            submission = AsyncSubmission(race_id= race_id, user_id= user_id, finish_time_igt= igt, collection_rate= cr_int)
+
         if parse_error:
             await ctx.send("IGT or CR is in the wrong format, evaluate your life choices and try again", delete_after=DeleteAfterTime)
+            return
         else:
             # Verify the race exists and is active
             race = AsyncRace.select().where(id==race_id).get()
@@ -816,8 +818,6 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                     return ret
     
                 user_reaction = 0
-                rta = None
-                mode = None
                 comment = None
                 user_choice = 0
                 RTA_STR = "RTA"
@@ -841,25 +841,14 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                             logging.info("Invalid index for choices list")
                             break
                         elif choices[idx] == RTA_STR:
-                            rta = await self.get_rta(ctx)
+                            submission.finish_time_rta = await self.get_rta(ctx)
                         elif choices[idx] == NEXT_MODE_STR:
-                            mode = await self.get_mode(ctx)
+                            submission.next_mode = await self.get_mode(ctx)
                         elif choices[idx] == COMMENT_STR:
                             comment = await self.get_comment(ctx)
 
-                submit_time = datetime.now().isoformat(timespec='minutes').replace('T', ' ')
-                submission_sql = ""
-                # If we're updating an existing time, we need to use different SQL
-                if is_update:
-                    if rta is None: rta = existing_submission[ASYNC_SUBMISSIONS_RTA]
-                    if mode is None: mode = existing_submission[ASYNC_SUBMISSIONS_NEXT_MODE]
-                    if comment is None: comment = existing_submission[ASYNC_SUBMISSIONS_COMMENT]
-                    submission_sql = UpdateAsyncSubmissionSql.format(submit_time, rta, igt, cr_int, mode, comment, existing_submission[ASYNC_SUBMISSIONS_ID])
-                else:
-                    submission_sql = AddAsyncSubmissionSql.format(submit_time, race_id, ctx.author.id, ctx.author.name, rta, igt, cr_int, mode, comment)
-                self.cursor.execute(submission_sql)
-                self.db_connection.commit()
-
+                submission.submit_date = datetime.now().isoformat(timespec='minutes').replace('T', ' ')
+                submission.save()
                 await ctx.send("Submission for {} complete".format(ctx.author.name), delete_after=DeleteAfterTime)
 
                 # Finally update the leaderboard if this is for the current weekly async
@@ -898,7 +887,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         msg = await self.ask(ctx, "Is there any additional info? Reply with 'No' or the info text", checkSameAuthor)
         if msg is None: return
 
-        instructions = "NULL" 
+        instructions = "NULL"
         if msg.lower() != "no":
             # Need to quote the message
             instructions = '"{}"'.format(msg)
@@ -907,8 +896,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         new_race = AsyncRace(seed=seed, description=mode, additional_instructions=instructions, category_id=self.weekly_category_id, active=0)
         new_race.save()
         await ctx.send("Added race ID: {}".format(new_race.id))
-        self.db_connection.commit()
-        
+
         if should_start != 0:
             await self.start_race(ctx, new_race)
 
@@ -1020,9 +1008,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         else:
             start_date = date.today().isoformat()
             logging.info("Start Date: {}".format(start_date))
-            start_race_sql = StartRaceSql.format(start_date, race.id)
-            self.cursor.execute(start_race_sql)
-            self.db_connection.commit()
+            race.start = start_date
+            race.active = True
+            race.save()
             await ctx.send(f'Started race {race.id}')
             if race.category_id == self.weekly_category_id:
                 await self.updateWeeklyModeMessage(race)
@@ -1071,29 +1059,6 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             ctx.send(f'Race ID {race_id} does not exist', delete_after=DeleteAfterTime)
 
 ########################################################################################################################
-# SET_WEIGHT
-########################################################################################################################
-    #@commands.command()
-    #@commands.check(isRaceCreatorCommandChannel)
-    #@commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
-    #async def edit_weight(self, ctx: commands.Context, user_id: int, weight: int):
-    #    ''' 
-    #    Sets the wheel weight for a user
-    #
-    #        Required Parameters:
-    #            user_id - ID of the user to update
-    #            weight  - Weight to be set for the user
-    #    '''
-    #    logging.info('Executing $edit_weight command')
-    #    # First query the user's current wheel weight
-    #    self.cursor.execute(QueryRacerDataSql.format(user_id))
-    #    racer_data = self.cursor.fetchone()
-    #    await ctx.send("Current wheel weight for {} is {}. Updating it to {}".format(racer_data[ASYNC_RACERS_USERID], racer_data[ASYNC_RACERS_WHEEL_WEIGHT], weight))
-    #
-    #    self.cursor.execute(UpdateWheelWeightSql.format(weight, user_id))
-    #    self.db_connection.commit()
-
-########################################################################################################################
 # WHEEL_INFO
 ########################################################################################################################
     @commands.command()
@@ -1105,28 +1070,31 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         weekly asyncs and will include their most recent mode suggestion and their wheel weight.
         '''
         logging.info('Executing $wheel_info command')
-        racers = self.cursor.execute(QueryAllRacerDataSql).fetchall()
+        racers = AsyncRacer.select()
         # Query the 5 most recent weekly races
-        recent_races = self.cursor.execute(QueryMostRecentActiveFromCategorySql.format(self.weekly_category_id, 0)).fetchall()
+        recent_races = AsyncRace.select().where(AsyncRace.category_id == self.weekly_category_id & AsyncRace.active = True).order_by(start.desc)
         race_id_range_begin = recent_races[0][ASYNC_RACES_ID]
         race_id_range_end   = recent_races[1][ASYNC_RACES_ID]
-        wheel_list_str = "*Name* > *Mode*\n"
+        wheel_list = ["*Name* > *Mode*\n"]
         for r in racers:
             # Query mode suggestions for this user, we will query each of the two most recent weekly async races. If the user has not completed
             # either async then the query will return None
-            mode_data = self.cursor.execute(QueryModeSuggestionForWheel.format(r[ASYNC_RACERS_USERID], race_id_range_begin)).fetchone()
-            if mode_data is not None:
-                mode_str = mode_data[0]
-                if mode_str is not None:
-                    wheel_list_str += "{} > {}\n".format(r[ASYNC_RACERS_USERNAME], mode_str.strip().replace('\n', ' '))
+            submission1 = AsyncSubmission.select()
+                                         .join(AsyncRace)
+                                         .where((AsyncSubmission.race_id == race[0].id) & (AsyncSubmission.user_id == r.user_id))
+                                         .get()
+            submission2 = AsyncSubmission.select()
+                                         .join(AsyncRace)
+                                         .where((AsyncSubmission.race_id == race[1].id) & (AsyncSubmission.user_id == r.user_id))
+                                         .get()
+            
+            if submission1 is not None and submission1.next_mode is not None:
+                wheel_list.append(f"{r.username} > {submission1.next_mode.strip().replace('\n', ' ')}"
 
-            mode_data = self.cursor.execute(QueryModeSuggestionForWheel.format(r[ASYNC_RACERS_USERID], race_id_range_end)).fetchone()
-            if mode_data is not None:
-                mode_str = mode_data[0]
-                if mode_str is not None:
-                    wheel_list_str += "{} > {}\n".format(r[ASYNC_RACERS_USERNAME], mode_str.strip().replace('\n', ' '))
+            if submission2 is not None and submission2.next_mode is not None:
+                wheel_list.append(f"{r.username} > {submission2.next_mode.strip().replace('\n', ' ')}"
 
-        await ctx.send(wheel_list_str)
+        await ctx.send('\n'.join(wheel_list))
 
 ########################################################################################################################
 # MOD_UTIL
@@ -1170,11 +1138,11 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 user_id - ID of the user to edit a submission for
         '''
         logging.info('Executing $user_races command')
-        member_info = self.cursor.execute(QueryRacerDataSql.format(user_id)).fetchone()
+        member_info = AsyncRacer.select().where(AsyncRacer.user_id == user_id).get()
         if member_info is None:
             await ctx.send("No user found with ID {}".format(user_id))
             return
-        await ctx.send("Showing races for {}".format(member_info[ASYNC_RACERS_USERNAME]))
+        await ctx.send(f"Showing races for {member_info.username}")
         await self.show_races(ctx, 1, user_id)
 
 
@@ -1192,7 +1160,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 submission_id - ID of the submission to edit
         '''
         logging.info('Executing $edit_submission command')
-        submission_to_edit = self.cursor.execute(QueryAsyncSubmissionByIdSql.format(submission_id)).fetchone()
+        submission_to_edit = AsyncSubmission.select().where(AsyncSubmission.id = submission_id).get()
         if submission_to_edit is None:
             await ctx.send("No submission found with ID {}".format(submission_id))
             return
@@ -1207,21 +1175,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         info_msg = await self.ask(ctx, new_info_prompt, checkInfo)
         parts = info_msg.split(' ')
         if self.game_time_is_valid(parts[0]):
-            new_igt = parts[0]
-            new_collection = parts[1]
-            new_rta = None
+            submission_to_edit.finish_time_igt = parts[0]
+            submission_to_edit.collection_rate = parts[1]
             if len(parts) == 3 and self.game_time_is_valid(parts[2]):
-                new_rta = parts[2]
-            update_sql = UpdateAsyncSubmissionSql.format(submission_to_edit[ASYNC_SUBMISSIONS_SUBMIT_DATE],
-                                                         new_rta,
-                                                         new_igt,
-                                                         new_collection,
-                                                         submission_to_edit[ASYNC_SUBMISSIONS_NEXT_MODE],
-                                                         submission_to_edit[ASYNC_SUBMISSIONS_COMMENT],
-                                                         submission_to_edit[ASYNC_SUBMISSIONS_ID])
-            self.cursor.execute(update_sql)
-            self.db_connection.commit()
-            await ctx.send("Updated submission ID {}".format(submission_to_edit[ASYNC_SUBMISSIONS_ID]))
+                submission_to_edit.finish_time_rta = parts[2]
+
+            submission_to_edit.save()
+            await ctx.send(f"Updated submission ID {submission_id}"
 
 ########################################################################################################################
 # ON_MESSAGE
@@ -1245,8 +1205,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             elif len(args) == 2 and self.game_time_is_valid(args[0]):
                 logging.info("handling weekly submission")
                 # Query the current race_id and send the message to submit_time, then assign the weekly racer role
-                self.cursor.execute(QueryMostRecentFromCategorySql.format(self.weekly_category_id, 0))
-                race_id = self.cursor.fetchone()[ASYNC_RACES_ID]
+                race_id = self.queryLatestWeeklyRaceId()
                 # Add the author's ID to the list of active submissions to avoid their messages getting deleted and usage instructions printed
                 self.weekly_submit_author_list.append(message.author.id)
                 await self.submit_time(ctx, race_id, args[0], args[1])
