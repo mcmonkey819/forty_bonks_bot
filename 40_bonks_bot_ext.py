@@ -1,11 +1,12 @@
 import sys
-import discord
-from discord.ext import commands
+import nextcord
+from nextcord.ext import commands
 import sqlite3
 from datetime import time
 import config
 import argparse
 import logging
+import asyncio
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,7 +22,7 @@ if test_mode:
     dbName = "testDbUtil.db"
 dbConn = sqlite3.connect(dbName)
 dbCursor = dbConn.cursor()
-client = discord.Client()
+client = nextcord.Client()
 
 class Bot(commands.Bot):
     def __init__(self, **kwargs):
@@ -30,14 +31,14 @@ class Bot(commands.Bot):
             try:
                 self.load_extension(cog)
             except Exception as exc:
-                logging.error('Could not load extension {0} due to {1.__class__.__name__}: {1}'.format(cog, exc))
+                logging.error(f"Could not load extension {cog} due to {exc.__class__.__name__}: {exc}")
 
     async def on_ready(self):
         #await self.change_presence(status='invisible')
         logging.info('Logged on as {0} (ID: {0.id})'.format(self.user))
 
 
-intents = discord.Intents.all()
+intents = nextcord.Intents.all()
 bot = Bot(intents=intents)
 if test_mode:
     async_cog = bot.get_cog('AsyncRaceHandler')
@@ -45,3 +46,4 @@ if test_mode:
     server_utils_cog = bot.get_cog('ServerUtils')
     server_utils_cog.setTestMode()
 bot.run(bot_token)
+logging.info("HERE")
