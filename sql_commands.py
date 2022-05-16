@@ -34,80 +34,80 @@ ASYNC_RACERS_USERID = 0
 ASYNC_RACERS_USERNAME = 1
 ASYNC_RACERS_WHEEL_WEIGHT = 2;
 
-CreateRaceCategoriesTableSql = '''
-    CREATE TABLE IF NOT EXISTS race_categories (
-    id INTEGER PRIMARY KEY NOT NULL,
-    name TEXT,
-    description TEXT
-    );'''
+#CreateRaceCategoriesTableSql = '''
+#    CREATE TABLE IF NOT EXISTS race_categories (
+#    id INTEGER PRIMARY KEY NOT NULL,
+#    name TEXT,
+#    description TEXT
+#    );'''
 
-CreateAsyncRacesTableSql = '''
-CREATE TABLE IF NOT EXISTS async_races (
-    id INTEGER PRIMARY KEY NOT NULL,
-    start DATETIME,
-    seed TEXT NOT NULL,
-    description TEXT NOT NULL,
-    additional_instructions TEXT,
-    category_id INTEGER,
-    active BOOLEAN DEFAULT 0
-    );'''
+#CreateAsyncRacesTableSql = '''
+#CREATE TABLE IF NOT EXISTS async_races (
+#    id INTEGER PRIMARY KEY NOT NULL,
+#    start DATETIME,
+#    seed TEXT NOT NULL,
+#    description TEXT NOT NULL,
+#    additional_instructions TEXT,
+#    category_id INTEGER,
+#    active BOOLEAN DEFAULT 0
+#    );'''
 
-CreateAsyncSubmissionsTableSql = '''
-CREATE TABLE IF NOT EXISTS async_submissions (
-    id INTEGER PRIMARY KEY NOT NULL,
-    submit_date DATETIME,
-    race_id INTEGER NOT NULL,
-    user_id INTEGER NOT NULL,
-    username TEXT,
-    finish_time_rta TEXT,
-    finish_time_igt TEXT NOT NULL,
-    collection_rate INTEGER,
-    next_mode TEXT
-    );'''
+#CreateAsyncSubmissionsTableSql = '''
+#CREATE TABLE IF NOT EXISTS async_submissions (
+#    id INTEGER PRIMARY KEY NOT NULL,
+#    submit_date DATETIME,
+#    race_id INTEGER NOT NULL,
+#    user_id INTEGER NOT NULL,
+#    username TEXT,
+#    finish_time_rta TEXT,
+#    finish_time_igt TEXT NOT NULL,
+#    collection_rate INTEGER,
+#    next_mode TEXT
+#    );'''
 
-CreateAsyncRacersTableSql = '''
-CREATE TABLE IF NOT EXISTS async_racers (
-    user_id INTEGER PRIMARY KEY NOT NULL,
-    username TEXT NOT NULL
-    wheel_weight INTEGER DEFAULT 1
-    );'''
+#CreateAsyncRacersTableSql = '''
+#CREATE TABLE IF NOT EXISTS async_racers (
+#    user_id INTEGER PRIMARY KEY NOT NULL,
+#    username TEXT NOT NULL
+#    wheel_weight INTEGER DEFAULT 1
+#    );'''
 
 # Adds a new race category
-AddRaceCategorySql = '''
-INSERT INTO race_categories
-    (name, description)
-VALUES
-    ({});'''
+#AddRaceCategorySql = '''
+#    INSERT INTO race_categories
+#        (name, description)
+#    VALUES
+#        ({});'''
 
 # Adds a new racer
-AddRacerSql = '''
-INSERT INTO async_racers
-    (user_id, username)
-VALUES
-    ({}, "{}");'''
+#AddRacerSql = '''
+#    INSERT INTO async_racers
+#        (user_id, username)
+#    VALUES
+#        ({}, "{}");'''
 
 # Query the category id for a specific race category name
-QueryCategoryIdSql = '''
-SELECT id FROM race_categories
-WHERE name LIKE {};'''
+#QueryCategoryIdSql = '''
+#    SELECT id FROM race_categories
+#    WHERE name LIKE {};'''
 
 
 # Map containing a field for each column added in AddAsyncRaceSql
-AddAsyncRaceArgMap = {
-    AsyncRacesColNames[ASYNC_RACES_START]             : None,
-    AsyncRacesColNames[ASYNC_RACES_SEED]              : None,
-    AsyncRacesColNames[ASYNC_RACES_DESC]              : None,
-    AsyncRacesColNames[ASYNC_RACES_ADDL_INSTRUCTIONS] : None,
-    AsyncRacesColNames[ASYNC_RACES_CATEGORY_ID]       : 1,
-    AsyncRacesColNames[ASYNC_RACES_ACTIVE]            : 0
-}
+#AddAsyncRaceArgMap = {
+#    AsyncRacesColNames[ASYNC_RACES_START]             : None,
+#    AsyncRacesColNames[ASYNC_RACES_SEED]              : None,
+#    AsyncRacesColNames[ASYNC_RACES_DESC]              : None,
+#    AsyncRacesColNames[ASYNC_RACES_ADDL_INSTRUCTIONS] : None,
+#    AsyncRacesColNames[ASYNC_RACES_CATEGORY_ID]       : 1,
+#    AsyncRacesColNames[ASYNC_RACES_ACTIVE]            : 0
+#}
 
 # Adds a new race, only includes the fields known at add time
-AddAsyncRaceSql = '''
-INSERT INTO async_races
-    (seed, description, additional_instructions, category_id, active)
-VALUES
-    ("{}", "{}", {}, {}, {});'''
+#AddAsyncRaceSql = '''
+#    INSERT INTO async_races
+#        (seed, description, additional_instructions, category_id, active)
+#    VALUES
+#        ("{}", "{}", {}, {}, {});'''
 
 # Removes an async race
 RemoveAsyncRaceSql = '''
@@ -167,17 +167,17 @@ SELECT * FROM async_submissions
 WHERE id={};'''
 
 # Query user submissions. First parameter is user_id, second parameter is offset start (e.g. 0, 5, 10, etc)
-QueryRecentUserSubmissionsSql = '''
-SELECT * FROM async_submissions
-WHERE user_id={}
-ORDER BY submit_date DESC
-LIMIT 5 OFFSET {};'''
+#QueryRecentUserSubmissionsSql = '''
+#   SELECT * FROM async_submissions
+#   WHERE user_id={}
+#   ORDER BY submit_date DESC
+#   LIMIT 5 OFFSET {};'''
 
 # Query the leaderboard for a race.
-QueryRaceLeaderboardSql = '''
-SELECT * FROM async_submissions
-WHERE race_id={}
-ORDER BY time(substr('0' || finish_time_igt, -8, 8)) ASC;'''
+#QueryRaceLeaderboardSql = '''
+#   SELECT * FROM async_submissions
+#   WHERE race_id={}
+#   ORDER BY time(substr('0' || finish_time_igt, -8, 8)) ASC;'''
 
 # Query submissions for a specific race_id and user_id
 QueryUserRaceSubmissions = '''
