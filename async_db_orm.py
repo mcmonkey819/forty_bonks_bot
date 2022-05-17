@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from peewee import *
 
 class RaceCategory(Model):
@@ -38,6 +39,7 @@ class AsyncSubmission(Model):
     finish_time_igt = CharField()
     collection_rate = IntegerField()
     next_mode = CharField(null=True)
+    comment = CharField(null=True)
 
     class Meta:
         table_name = 'async_submissions'
