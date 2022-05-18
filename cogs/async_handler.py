@@ -1,5 +1,4 @@
-7# -*- coding: utf-8 -*-
-
+# -*- coding: utf-8 -*-
 from nextcord.ext import commands
 import nextcord
 import sqlite3
@@ -9,32 +8,55 @@ import re
 import asyncio
 from datetime import datetime, date
 from async_db_orm import *
+from enum import Enum
+from typing import NamedTuple
+
+class ServerInfo(NamedTuple):
+    server_id: int
+
+    # Channel IDs
+    weekly_submit_channel: int
+    tourney_submit_channel: int
+    race_creator_channel: int
+    bot_command_channels: list[int]
+    weekly_leaderboard_channel: int
+    tourney_leaderboard_channel: int
+    announcements_channel: int
+
+    # Role IDs
+    race_creator_role: int
+    weekly_race_done_role: int
+    weekly_racer_role: int
 
 # 40 Bonks Server Info
-FORTY_BONKS_SERVER_ID = 485284146063736832
-FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL = 907626630816620624
-FORTY_BONKS_TOURNEY_SUBMIT_CHANNEL = 0
-FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL = 907626794474156062
-FORTY_BONKS_BOT_COMMAND_CHANNELS = [ 907627122732982363, FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL ]
-FORTY_BONKS_RACE_CREATOR_ROLE = 782804969107226644
-FORTY_BONKS_WEEKLY_RACE_DONE_ROLE = 732078040892440736
-FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL = 747239559175208961
-FORTY_BONKS_TOURNEY_LEADERBOARD_CHANNEL = 0
-FORTY_BONKS_ANNOUNCEMENTS_CHANNEL = 734104388821450834
-FORTY_BONKS_WEEKLY_RACER_ROLE = 732048874222387200
+FortyBonksServerInfo = ServerInfo(
+    server_id = 485284146063736832,
+    weekly_submit_channel = 907626630816620624,
+    tourney_submit_channel = 0,
+    race_creator_channel = 907626794474156062,
+    bot_command_channels = [ 907627122732982363, 907626794474156062 ],
+    race_creator_role = 782804969107226644,
+    weekly_race_done_role = 732078040892440736,
+    weekly_leaderboard_channel = 747239559175208961,
+    tourney_leaderboard_channel = 0,
+    announcements_channel = 734104388821450834,
+    weekly_racer_role = 732048874222387200)
 
 # Bot Testing Things Server Info
-BTT_SERVER_ID = 853060981528723468
-BTT_RACE_CREATOR_ROLE = 888940865337299004
-BTT_WEEKLY_SUBMIT_CHANNEL = 892861800612249680
-BTT_TOURNEY_SUBMIT_CHANNEL = 952612873534836776
-BTT_RACE_CREATOR_COMMAND_CHANNEL = 896494916493004880
-BTT_BOT_COMMAND_CHANNELS = [ 853061634855665694, 854508026832748544, BTT_RACE_CREATOR_COMMAND_CHANNEL ]
-BTT_WEEKLY_RACE_DONE_ROLE = 895026847954374696
-BTT_WEEKLY_LEADERBOARD_CHANNEL = 895681087701909574
-BTT_TOURNEY_LEADERBOARD_CHANNEL = 952612956724682763
-BTT_ANNOUNCEMENTS_CHANNEL = 896494916493004880
-BTT_WEEKLY_RACER_ROLE = 931946945562423369
+BttServerInfo = ServerInfo(
+    server_id = 853060981528723468,
+    race_creator_role = 888940865337299004,
+    weekly_submit_channel = 892861800612249680,
+    tourney_submit_channel = 952612873534836776,
+    race_creator_channel = 896494916493004880,
+    bot_command_channels = [ 853061634855665694, 854508026832748544, 896494916493004880 ],
+    weekly_race_done_role = 895026847954374696,
+    weekly_leaderboard_channel = 895681087701909574,
+    tourney_leaderboard_channel = 952612956724682763,
+    announcements_channel = 896494916493004880,
+    weekly_racer_role = 931946945562423369)
+
+SupportedServerList = [ FortyBonksServerInfo.server_id, BttServerInfo.server_id ]
 
 PRODUCTION_DB = "AsyncRaceInfo.db"
 TEST_DB = "testDbUtil.db"
@@ -42,6 +64,9 @@ TEST_DB = "testDbUtil.db"
 # Discord limit is 2000 characters, subtract a few to account for formatting, newlines, etc
 DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
+DeleteAfterTimeEphemeral = 15
+SelectTimeout = 30
+AddRaceTimeout = 120
 ItemsPerPage = 10
 NextPageEmoji = '▶️'
 OneEmoji = '1️⃣'
@@ -83,22 +108,22 @@ async def isSubmitChannel(ctx):
     return isWeeklySubmitChannel(ctx) or isTourneySubmitChannel(ctx)
 
 async def isWeeklySubmitChannel(ctx):
-    if ctx.channel.id == FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL or ctx.channel.id == BTT_WEEKLY_SUBMIT_CHANNEL:
+    if ctx.channel.id == FortyBonksServerInfo.weekly_submit_channel or ctx.channel.id == BttServerInfo.weekly_submit_channel:
         return True
     return False
 
 async def isTourneySubmitChannel(ctx):
-    if ctx.channel.id == FORTY_BONKS_TOURNEY_SUBMIT_CHANNEL or ctx.channel.id == BTT_TOURNEY_SUBMIT_CHANNEL:
+    if ctx.channel.id == FortyBonksServerInfo.tourney_submit_channel or ctx.channel.id == BttServerInfo.tourney_submit_channel:
         return True
     return False
 
 async def isRaceCreatorCommandChannel(ctx):
-    if ctx.channel.id == FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL or ctx.channel.id == BTT_RACE_CREATOR_COMMAND_CHANNEL:
+    if ctx.channel.id == FortyBonksServerInfo.race_creator_channel or ctx.channel.id == BttServerInfo.race_creator_channel:
         return True
     return False
 
 async def isBotCommandChannel(ctx):
-    if ctx.channel.id in FORTY_BONKS_BOT_COMMAND_CHANNELS or ctx.channel.id in BTT_BOT_COMMAND_CHANNELS:
+    if ctx.channel.id in FortyBonksServerInfo.bot_command_channels or ctx.channel.id in BttServerInfo.bot_command_channels:
         return True
     return False
 
@@ -111,34 +136,13 @@ def sort_igt(submission):
         ret = (3600 * int(parts[0])) + (60 * int(parts[1])) + int(parts[2])
     return ret
 
-class SubmitTime(nextcord.ui.Modal):
-    def __init__(self):
-        super().__init__("Async Time Submit")
-
-        self.igt = nextcord.ui.TextInput(
-            label="Enter IGT in format `H:MM:SS`",
-            min_length=7,
-            max_length=7)
-        self.add_item(self.igt)
-
-        self.collection_rate = nextcord.ui.TextInput(
-            label="Enter collection rate`",
-            min_length=1,
-            max_length=3)
-        self.add_item(self.collection_rate)
-
-        self.rta = nextcord.ui.TextInput(
-            label="Enter RTA in format `H:MM:SS`",
-            required=False,
-            min_length=7,
-            max_length=7)
-        self.add_item(self.rta)
-
-    async def callback(self, interaction: nextcord.Interaction) -> None:
-        await interaction.send(f"Submitted time for {interaction.user.mention}", ephemeral=True, delete_after=DeleteAfterTime)
-
-
+WeeklySubmitButtonId = "WeeklyAsyncSubmit"
+WeeklyEditButtonId = "WeeklyAsyncEdit"
+WeeklyFFButtonId = "WeeklyAsyncFF"
+ForfeitModalId = "ForfeitModal"
+SubmitModalId = "SubmitModal"
 timeout_msg = "Timeout error. I don't have all day! You'll have to start over (and be quicker this time)"
+
 class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     '''Cog which handles commands related to Async Races.'''
 
@@ -148,21 +152,176 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.db = SqliteDatabase(PRODUCTION_DB)
         self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
         self.weekly_category_id = 1
+        self.weekly_submit_author_list = []
         self.tourney_category_id = 2
+        self.tourney_submit_author_list = []
         self.pt = PrettyTable()
         self.resetPrettyTable()
-        self.server_id = FORTY_BONKS_SERVER_ID
-        self.race_creator_role_id = FORTY_BONKS_RACE_CREATOR_ROLE
-        self.weekly_submit_channel_id = FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL
-        self.tourney_submit_channel_id = FORTY_BONKS_TOURNEY_SUBMIT_CHANNEL
-        self.weekly_submit_author_list = []
-        self.tourney_submit_author_list = []
-        self.weekly_racer_role = FORTY_BONKS_WEEKLY_RACER_ROLE
-        self.weekly_race_done_role = FORTY_BONKS_WEEKLY_RACE_DONE_ROLE
-        self.weekly_leaderboard_channel = FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL
-        self.tourney_leaderboard_channel = FORTY_BONKS_TOURNEY_LEADERBOARD_CHANNEL
-        self.announcements_channel = FORTY_BONKS_ANNOUNCEMENTS_CHANNEL
+        self.server_info = FortyBonksServerInfo
         self.replace_poop_with_tp = True
+
+########################################################################################################################
+# UI Elements
+########################################################################################################################
+
+    ########################################################################################################################
+    # Submit time modal/view
+    class SubmitType(Enum):
+        SUBMIT  = 1
+        EDIT    = 2
+        FORFEIT = 3
+
+    class SubmitTimeModal(nextcord.ui.Modal):
+        def __init__(self, asyncHandler, race_id, isWeeklyAsync, submitType):
+            super().__init__("Async Time Submit")
+            self.asyncHandler = asyncHandler
+            self.race_id = race_id
+            self.isWeeklyAsync = isWeeklyAsync
+            self.submitType = submitType
+
+            self.igt = nextcord.ui.TextInput(
+                label="Enter IGT in format `H:MM:SS`",
+                min_length=7,
+                max_length=8)
+
+            self.collection_rate = nextcord.ui.TextInput(
+                label="Enter collection rate`",
+                min_length=1,
+                max_length=3)
+
+            self.rta = nextcord.ui.TextInput(
+                label="Enter RTA in format `H:MM:SS`",
+                required=False,
+                min_length=7,
+                max_length=7)
+
+            self.comment = nextcord.ui.TextInput(
+                label="Enter Comment",
+                required=False,
+                min_length=1,
+                max_length=1024)
+
+            self.next_mode = nextcord.ui.TextInput(
+                label="Enter Next Mode Suggestion",
+                required=False,
+                min_length=1,
+                max_length=1024)
+
+            if submitType is not AsyncHandler.SubmitType.FORFEIT:
+                self.add_item(self.igt)
+                self.add_item(self.collection_rate)
+                self.add_item(self.rta)
+            self.add_item(self.comment)
+            if isWeeklyAsync:
+                self.add_item(self.next_mode)
+
+        async def callback(self, interaction: nextcord.Interaction) -> None:
+            await self.asyncHandler.submit_time(self, interaction, self.race_id)
+            if self.isWeeklyAsync:
+                await self.asyncHandler.assignWeeklyAsyncRole(interaction.guild, interaction.user)
+
+    class SubmitFFView(nextcord.ui.View):
+        def __init__(self, asyncHandler, race_id, isWeeklyAsync=False):
+            super().__init__()
+            self.submit = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.SUBMIT)
+            self.edit = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.EDIT)
+            self.ff = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.FORFEIT)
+            self.race_id = race_id
+            self.asyncHandler = asyncHandler
+
+        @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Submit Time', custom_id=WeeklySubmitButtonId)
+        async def submit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+            logging.info("submit click")
+            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
+            if submission is None:
+                await interaction.response.send_modal(self.submit)
+            else:
+                await interaction.send("You've already submitted for this race, use the 'Edit Time' button to modify your submission", ephemeral=True)
+
+        @nextcord.ui.button(style=nextcord.ButtonStyle.grey, label='Edit Time', custom_id=WeeklyEditButtonId)
+        async def edit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+            logging.info("edit click")
+            # Get the user's current submission
+            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
+            if submission is not None:
+                # Update default values using the existing submission
+                self.edit.igt.default_value = submission.finish_time_igt
+                self.edit.collection_rate.default_value = str(submission.collection_rate)
+                self.edit.rta.default_value = submission.finish_time_rta
+                self.edit.comment.default_value = submission.comment
+                self.edit.next_mode.default_value = submission.next_mode
+
+            # Send the modal
+            await interaction.response.send_modal(self.edit)
+
+        @nextcord.ui.button(style=nextcord.ButtonStyle.red, label='FF', custom_id=WeeklyFFButtonId)
+        async def ff_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+            logging.info("ff click")
+            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
+            if submission is None:
+                await interaction.response.send_modal(self.ff)
+            else:
+                await interaction.send("You've already submitted for this race, use the 'Edit Time' button to modify your submission", ephemeral=True)
+
+    ########################################################################################################################
+    # Add race modal
+    class AddRaceModal(nextcord.ui.Modal):
+        def __init__(self, asyncHandler):
+            super().__init__("Add Race")
+            self.asyncHandler = asyncHandler
+            self.is_done = False
+
+            self.mode = nextcord.ui.TextInput(
+                label="Mode Description`",
+                min_length=1,
+                max_length=50)
+            self.add_item(self.mode)
+
+            self.seed = nextcord.ui.TextInput(label="Seed Link`")
+            self.add_item(self.seed)
+
+            self.instructions = nextcord.ui.TextInput(
+                label="Additional Instructions`",
+                required=False)
+            self.add_item(self.instructions)
+
+        async def callback(self, interaction: nextcord.Interaction):
+            self.is_done = True
+
+    class CategorySelect(nextcord.ui.Select):
+        def __init__(self, callback_func, add_race_modal):
+            self.callback_func = callback_func
+            self.add_race_modal = add_race_modal
+
+            # Query the categories
+            categories = RaceCategory.select()
+
+            # Create the options list from the categories
+            options = []
+            for c in categories:
+                options.append(nextcord.SelectOption(label=c.name, description=c.description, value=str(c.id)))
+
+            # Initialize the base class
+            super().__init__(
+                placeholder="Select Race Category...",
+                min_values=1,
+                max_values=1,
+                options=options)
+
+        async def callback(self, interaction: nextcord.Interaction):
+            await interaction.response.send_modal(self.add_race_modal)
+            await self.callback_func(int(interaction.data['values'][0]))
+
+    class AddRaceView(nextcord.ui.View):
+        def __init__(self, add_race_modal):
+            super().__init__()
+            self.category_id = 0
+            self.category_select = AsyncHandler.CategorySelect(self.callback_func, add_race_modal)
+            self.add_item(self.category_select)
+
+        async def callback_func(self, category_id):
+            self.category_id = category_id
+
 
 ########################################################################################################################
 # Utility Functions
@@ -171,15 +330,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.test_mode = True
         self.db = SqliteDatabase(TEST_DB)
         self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
-        self.server_id = BTT_SERVER_ID
-        self.race_creator_role_id = BTT_RACE_CREATOR_ROLE
-        self.weekly_submit_channel_id = BTT_WEEKLY_SUBMIT_CHANNEL
-        self.tourney_submit_channel_id = BTT_TOURNEY_SUBMIT_CHANNEL
-        self.weekly_racer_role = BTT_WEEKLY_RACER_ROLE
-        self.weekly_race_done_role = BTT_WEEKLY_RACE_DONE_ROLE
-        self.weekly_leaderboard_channel = BTT_WEEKLY_LEADERBOARD_CHANNEL
-        self.tourney_leaderboard_channel = BTT_TOURNEY_LEADERBOARD_CHANNEL
-        self.announcements_channel = BTT_ANNOUNCEMENTS_CHANNEL
+        self.server_info = BttServerInfo
+        SelectTimeout = 10
+        AddRaceTimeout = 30
 
     def resetPrettyTable(self):
         self.pt.set_style(DEFAULT)
@@ -187,10 +340,37 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     def isRaceCreator(self, ctx):
         ret = False
-        role = ctx.guild.get_role(self.race_creator_role_id)
+        role = ctx.guild.get_role(self.server_info.race_creator_role_id)
         if role in ctx.author.roles:
             ret =  True
         return ret
+
+    ####################################################################################################################
+    # Removes the weekly async submit/ff button message
+    async def removeWeeklySubmitButtons(self):
+        # Get the weekly submit channel
+        weekly_submit_channel = self.bot.get_channel(self.server_info.weekly_submit_channel)
+        message_list = await weekly_submit_channel.history(limit=200).flatten()
+        # Search the message history for the message containing the submit/ff buttons. We identify the message by looking
+        # for a message containing an action row where the first item is a button with the WeeklySubmitButtonId custom_id
+        for message in message_list:
+            if message.author.id == self.bot.user.id and len(message.components) > 0:
+                if isinstance(message.components[0], nextcord.ActionRow):
+                    row = message.components[0]
+                    if len(row.children) > 0 and isinstance(row.children[0], nextcord.Button):
+                        if row.children[0].custom_id == WeeklySubmitButtonId:
+                            await message.delete()
+                            break
+
+    ####################################################################################################################
+    # Adds the weekly async submit/ff button message
+    async def addSubmitButtons(self):
+        # Get the weekly submit channel
+        weekly_submit_channel = self.bot.get_channel(self.server_info.weekly_submit_channel)
+        # Remove any existing submit button message
+        await self.removeWeeklySubmitButtons()
+        # Add the new message
+        await weekly_submit_channel.send("Click below to submit a time or FF from this week's race", view=self.SubmitFFView(self, self.queryLatestWeeklyRaceId(), True))
 
     ####################################################################################################################
     # This function breaks a response into multiple messages that meet the Discord API character limit
@@ -396,14 +576,14 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     ####################################################################################################################
     # Assigns the weekly async racer role, which unlocks access to the spoiler channel
-    async def assignWeeklyAsyncRole(self, ctx):
-        role = nextcord.utils.get(ctx.guild.roles, id=self.weekly_race_done_role)
-        await ctx.author.add_roles(role)
+    async def assignWeeklyAsyncRole(self, guild, author):
+        role = nextcord.utils.get(guild.roles, id=self.server_info.weekly_race_done_role)
+        await author.add_roles(role)
 
     ####################################################################################################################
     # Removes the weekly async racer role from all users in the server
     async def removeWeeklyAsyncRole(self, ctx):
-        role = nextcord.utils.get(ctx.guild.roles, id=self.weekly_race_done_role)
+        role = nextcord.utils.get(ctx.guild.roles, id=self.server_info.weekly_race_done_role)
         for m in ctx.guild.members:
             await m.remove_roles(role)
 
@@ -452,9 +632,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     ####################################################################################################################
     # Updates the weekly leaderboard message
-    async def updateLeaderboardMessage(self, race_id, ctx):
+    async def updateLeaderboardMessage(self, race_id, guild):
         # Remove all messages from the leaderboard channel
-        leaderboard_channel = ctx.guild.get_channel(self.weekly_leaderboard_channel)
+        leaderboard_channel = guild.get_channel(self.server_info.weekly_leaderboard_channel)
         await leaderboard_channel.purge()
 
         # Then build and post the latest leaderboard
@@ -482,12 +662,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Adds the provided emoji's as reactions to a message and returns the first one the user clicks, if any, 
     # before the timeout (30s)
-    async def userReactEmoji(self, ctx, message, emoji_list, delete_on_react = True):
+    async def userReactEmoji(self, author, message, emoji_list, delete_on_react = True):
         for e in emoji_list:
             await message.add_reaction(e)
 
         def checkUserReaction(reaction, user):
-            return user == ctx.author and reaction.message == message and str(reaction.emoji) in emoji_list
+            return user == author and reaction.message == message and str(reaction.emoji) in emoji_list
 
         bot_member = self.bot.get_user(self.bot.user.id)
         return_emoji = TimerEmoji
@@ -505,7 +685,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Updates the current mode message in the weekly submit channel
     async def updateWeeklyModeMessage(self, race):
-        weekly_submit_channel = self.bot.get_channel(self.weekly_submit_channel_id)
+        weekly_submit_channel = self.bot.get_channel(self.server_info.weekly_submit_channel)
         message_list = await weekly_submit_channel.history(limit=200).flatten()
         for message in message_list:
             if message.author.id == self.bot.user.id:
@@ -521,8 +701,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Posts an announcement about a new weekly async
     async def post_annoucement(self, race, ctx):
-        announcements_channel = self.bot.get_channel(self.announcements_channel)
-        role = ctx.guild.get_role(self.weekly_racer_role)
+        announcements_channel = self.bot.get_channel(self.server_info.announcements_channel)
+        role = ctx.guild.get_role(self.server_info.weekly_racer_role)
         announcement_text = f'{role.mention} The new weekly async is live! Mode is: {race.description}'
         msg = await announcements_channel.send(announcement_text)
         
@@ -602,6 +782,17 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         else:
             await ctx.send("There are no async submissions in that range")
 
+    ####################################################################################################################
+    # Retrieves a submission based on race and user IDs. Returns None if no matching submission exists
+    def getSubmission(self, race_id, user_id):
+        try:
+            submission = AsyncSubmission.select()                                                                           \
+                                        .where((AsyncSubmission.race_id == race_id) & (AsyncSubmission.user_id == user_id)) \
+                                        .get()
+        except:
+            submission = None
+        return submission
+
 ########################################################################################################################
 # DASH
 ########################################################################################################################
@@ -612,19 +803,19 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         logging.info('Executing $dash command')
         self.checkAddMember(ctx.author)
 
-        #### CMC Prototype View/Button code ########
-        class ViewWithButton(nextcord.ui.View):
-            self.submit = SubmitTime()
-            @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Go Fast!')
-            async def click_me_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-                sent_modal = await interaction.response.send_modal(self.submit)
-                # Wait for an interaction to be given back
-                interaction: nextcord.Interaction = await self.bot.wait_for(
-                    "modal_submit", 
-                    check=lambda i: i.data['custom_id'] == sent_modal.custom_id,
-                )
-
-        await ctx.send("See what happens when you try to go fast", view=ViewWithButton())
+        ##### CMC Prototype View/Button code ########
+        #class ViewWithButton(nextcord.ui.View):
+        #    self.submit = SubmitTime()
+        #    @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Go Fast!')
+        #    async def click_me_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+        #        sent_modal = await interaction.response.send_modal(self.submit)
+        #        # Wait for an interaction to be given back
+        #        interaction: nextcord.Interaction = await self.bot.wait_for(
+        #            "modal_submit", 
+        #            check=lambda i: i.data['custom_id'] == sent_modal.custom_id,
+        #        )
+        #
+        #await ctx.send("See what happens when you try to go fast", view=ViewWithButton())
         #### CMC Prototype View/Button code ########
 
 ########################################################################################################################
@@ -771,112 +962,57 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # SUBMIT_TIME
 ########################################################################################################################
-    @commands.command(hidden=True)
-    @commands.check(isSubmitChannel)
-    async def submit_time(self, ctx: commands.Context, race_id: int, igt, collection_rate: int):
-        ''' 
-        Submits a time for an async race.
+    async def submit_time(self, modal: SubmitTimeModal, interaction: nextcord.Interaction, race_id):
+        logging.info('Handling submit_time')
 
-            Parameters:
-                race_id         - The race_id of the race submitting to.
-                igt             - Final in-game time in H:MM:SS format
-                collection_rate - In-game collection rate
-        '''
-        logging.info('Executing $submit_time command')
-        self.checkAddMember(ctx.author)
-        await ctx.message.delete()
-        user_id = ctx.author.id
-       
+        # First check if the race exists
+        race = self.get_race(race_id)
+        if race is None or not race.active:
+            await interaction.send(f"Error submitting time for race {race_id}. Race doesn't exist or is not active. Please notfiy the bot overlord(s)", ephemeral=True, delete_after=DeleteAfterTimeEphemeral)
+            return
+    
+        self.checkAddMember(interaction.user)
+        user_id = interaction.user.id
+        igt = "23:59:59" if modal.igt.value is None else modal.igt.value
+        rta = None if modal.rta.value == "" else modal.rta.value
+        cr_int = "216" if modal.collection_rate.value is None else modal.collection_rate.value
+        comment = modal.comment.value
+        next_mode = modal.next_mode.value
+
         parse_error = not self.game_time_is_valid(igt)
-        cr_int = 0
-        try:
-            cr_int = int(collection_rate)
-        except ValueError:
-            parse_error = True
-
-        # Fix IGT with missing zero in hour place
+        if rta is not None and not parse_error:
+            parse_error = not self.game_time_is_valid(rta)
+    
+        if parse_error:
+            await interaction.send("IGT, RTA or CR is in the wrong format, evaluate your life choices and try again", ephemeral=True, delete_after=DeleteAfterTimeEphemeral)
+            return
+    
+        # Fix IGT and RTA with missing zero in hour place
         if len(igt.split(':')) == 2:
             igt = "0:" + igt
-
-        # Check to see if there's already a submission for this race from this user
-        try:
-            submission = AsyncSubmission.select()                                                                           \
-                                        .where((AsyncSubmission.race_id == race_id) & (AsyncSubmission.user_id == user_id)) \
-                                        .get()
-        except:
-            submission = None
-
-        if submission is not None:
-            def checkYesNo(message):
-                ret = False
-                if message.author == ctx.author:
-                    msg = message.content.lower()
-                    if msg == "yes" or msg == "no":
-                        ret = True
-                return ret
-            replace_msg = await ctx.send("You already have submitted a time for this race, react with thumbs up to replace with this time")
-            user_reaction = await self.userReactEmoji(ctx, replace_msg, YesNoEmojiList)
-            if user_reaction != ThumbsUpEmoji:
-                await ctx.send("Submission cancelled", delete_after=DeleteAfterTime)
-                return
-        else:
-            submission = AsyncSubmission(race_id= race_id, user_id= user_id, username= ctx.author.name, finish_time_igt= igt, collection_rate= cr_int)
-
-        if parse_error:
-            await ctx.send("IGT or CR is in the wrong format, evaluate your life choices and try again", delete_after=DeleteAfterTime)
-            return
-        else:
-            # Verify the race exists and is active
-            race = self.get_race(race_id)
-            if race is None or not race.active:
-                await ctx.send("{} is not a valid race to submit to".format(race_id), delete_after=DeleteAfterTime)
-            else:
-                def checkChoice(message):
-                    ret = False
-                    if message.author == ctx.author:
-                        if len(message.content) == 1:
-                            value = int(message.content)
-                            if value >= 1 and value <= 6:
-                                ret = True
-                    return ret
     
-                user_reaction = 0
-                comment = None
-                user_choice = 0
-                RTA_STR = "RTA"
-                COMMENT_STR = "Comment"
-                NEXT_MODE_STR = "Next Mode Suggestion"
-                choices = [RTA_STR, COMMENT_STR]
-                if await isWeeklySubmitChannel(ctx): choices.append(NEXT_MODE_STR)
+        if rta is not None and len(rta.split(':')) == 2:
+            rta = "0:" + rta
+    
+        submission = self.getSubmission(race_id, user_id)
+        if submission is None:
+            # Create a brand new submission
+            submission = AsyncSubmission(race_id= race_id, user_id= user_id, username= interaction.user.name, finish_time_igt= igt, collection_rate= cr_int, finish_time_rta=rta, comment=comment, next_mode=next_mode)
+        else:
+            # Update the fields of the existing submission
+            submission.finish_time_igt= igt
+            submission.collection_rate= cr_int
+            submission.finish_time_rta=rta
+            submission.comment=comment
+            submission.next_mode=next_mode
 
-                submitted_msg_str = "Time submitted. React to add additional info (submission will be complete after 30s of inactivity):"
-                for i,c in enumerate(choices):
-                    submitted_msg_str += f"\n  {NumberEmojiList[i]} - {c}"
-                while True:
-                    submitted_msg = await ctx.send(submitted_msg_str)
-                    user_reaction = await self.userReactEmoji(ctx, submitted_msg, NumberEmojiList[:len(choices)])
-                    if user_reaction == TimerEmoji:
-                        break
-                    else:
-                        idx = NumberEmojiList.index(user_reaction)
-                        logging.info(f"Emoji index is {idx}")
-                        if idx > len(choices):
-                            logging.info("Invalid index for choices list")
-                            break
-                        elif choices[idx] == RTA_STR:
-                            submission.finish_time_rta = await self.get_rta(ctx)
-                        elif choices[idx] == NEXT_MODE_STR:
-                            submission.next_mode = await self.get_mode(ctx)
-                        elif choices[idx] == COMMENT_STR:
-                            comment = await self.get_comment(ctx)
-
-                submission.submit_date = datetime.now().isoformat(timespec='minutes').replace('T', ' ')
-                submission.save()
-                await ctx.send("Submission for {} complete".format(ctx.author.name), delete_after=DeleteAfterTime)
-
-                # Finally update the leaderboard if this is for the current weekly async
-                if race_id == self.queryLatestWeeklyRaceId():
-                    await self.updateLeaderboardMessage(race_id, ctx)
+        submission.submit_date = datetime.now().isoformat(timespec='minutes').replace('T', ' ')
+        submission.save()
+        await interaction.send("Submission complete", ephemeral=True, delete_after=DeleteAfterTimeEphemeral)
+    
+        # Finally update the leaderboard if this is for the current weekly async
+        if race_id == self.queryLatestWeeklyRaceId():
+            await self.updateLeaderboardMessage(race_id, interaction.guild)
 
 ########################################################################################################################
 ########################################################################################################################
@@ -887,48 +1023,54 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # ADD_RACE
 ########################################################################################################################
-    @commands.command()
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
-    async def add_race(self, ctx: commands.Context, seed, category, should_start):
-        ''' 
-        Adds a new async race
-    
-            Parameters:
-                seed - link to the seed or patch file for the race
-                should_start (optional) - Set to 0 if you would NOT like to run the `$start_race` command immediately after adding
-        '''
-        logging.info('Executing $add_race command')
-        def checkSameAuthor(message):
-            return message.author == ctx.author
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Add Async Race")
+    async def add_race(
+        self,
+        interaction,
+        is_active: int = nextcord.SlashOption(
+            name="is_active",
+            description="Make the race active immediately?",
+            choices={"Yes": 1, "No": 0})):
 
-        mode = await self.ask(ctx, "What's the mode? (limited to 50 characters)", checkSameAuthor)
-        if mode is None: return
+        logging.info('Executing add_race command')
 
-        mode = mode[:50]
+        add_race_modal = AsyncHandler.AddRaceModal(self)
+        add_race_view = AsyncHandler.AddRaceView(add_race_modal)
+        await interaction.send(view=add_race_view)
 
-        msg = await self.ask(ctx, "Is there any additional info? Reply with 'No' or the info text", checkSameAuthor)
-        if msg is None: return
+        sleep_counter = 0
+        while(not add_race_modal.is_done and sleep_counter < AddRaceTimeout):
+            await asyncio.sleep(1)
+            sleep_counter += 1
+            if sleep_counter > SelectTimeout:
+                if add_race_view.category_id == 0:
+                    await interaction.delete_original_message()
+                    await interaction.followup().send("Selection timeout, be quicker next time", ephemeral=True)
+                    return
 
-        instructions = "NULL"
-        if msg.lower() != "no":
-            # Need to quote the message
-            instructions = '"{}"'.format(msg)
+        await interaction.delete_original_message()
 
-        # Add the race with the provided info. Currently all are set to the weekly category and inactive
-        new_race = AsyncRace(seed=seed, description=mode, additional_instructions=instructions, category_id=self.weekly_category_id, active=0)
-        new_race.save()
-        await ctx.send("Added race ID: {}".format(new_race.id))
-
-        if should_start != 0:
-            await self.start_race(ctx, new_race)
+        if add_race_modal.is_done:
+            start_date = None
+            if is_active:
+                start_date = date.today().isoformat()
+            # Add the race with the provided info. Currently all are set to the weekly category and inactive
+            new_race = AsyncRace(
+                seed = add_race_modal.seed.value,
+                description = add_race_modal.mode.value,
+                additional_instructions = add_race_modal.instructions.value,
+                category_id = add_race_view.category_id,
+                active = is_active,
+                start=start_date)
+            new_race.save()
+            await interaction.followup.send(f"Added race ID: {new_race.id}", ephemeral=True)
 
 ########################################################################################################################
 # ADD_WEEKLY_RACE
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def add_weekly_race(self, ctx: commands.Context, seed):
         ''' 
         Adds a new weekly async race
@@ -943,7 +1085,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def add_tourney_race(self, ctx: commands.Context, seed):
         ''' 
         Adds a new tourney practice async race
@@ -958,7 +1100,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def edit_race(self, ctx: commands.Context, race_id: int):
         ''' 
         Edits an async race with the given race_id
@@ -1015,7 +1157,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def start_race(self, ctx: commands.Context, race_id: int):
         ''' 
         Starts an async race with the given race_id, making it active and avaiable for submissions
@@ -1037,7 +1179,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             await ctx.send(f'Started race {race.id}')
             if race.category_id == self.weekly_category_id:
                 await self.updateWeeklyModeMessage(race)
-                await self.updateLeaderboardMessage(race.id, ctx)
+                await self.updateLeaderboardMessage(race.id, ctx.guild)
                 await self.removeWeeklyAsyncRole(ctx)
                 await self.post_annoucement(race, ctx)
 
@@ -1046,7 +1188,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def remove_race(self, ctx: commands.Context, race_id: int):
         ''' 
         Removes an async race with the given race_id
@@ -1091,7 +1233,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def wheel_info(self, ctx: commands.Context):
         ''' 
         Prints the current wheel info, this will be a list of all users who have raced in one or both of the two most recent
@@ -1137,7 +1279,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command(hidden=True)
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def mod_util(self, ctx: commands.Context, function: int):
         ''' 
         A selection of utility functions. Parameter determines which function to run:
@@ -1150,7 +1292,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         '''
         logging.info('Executing $mod_util command')
         if function == 1:
-            await self.updateLeaderboardMessage(self.queryLatestWeeklyRaceId(), ctx)
+            await self.updateLeaderboardMessage(self.queryLatestWeeklyRaceId(), ctx.guild)
             await ctx.send("Updated weekly leaderboard channel")
         elif function == 2:
             race = self.get_race(race_id)
@@ -1165,7 +1307,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command(hidden=True)
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def user_races(self, ctx: commands.Context, user_id: int):
         ''' 
         Shows races for the user with the provided user ID
@@ -1187,7 +1329,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command(hidden=True)
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def edit_submission(self, ctx: commands.Context, submission_id: int):
         ''' 
         Edits a submission on behalf of a user
@@ -1228,7 +1370,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             return
 
         # Check if this is a weekly async submission
-        if message.guild.id == self.server_id and message.channel.id == self.weekly_submit_channel_id:
+        if message.guild.id == self.server_info.server_id and message.channel.id == self.server_info.weekly_submit_channel:
             args = message.content.split(' ')
             ctx = await self.bot.get_context(message)
 
@@ -1236,7 +1378,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             if message.content.lower() == "ff":
                 logging.info("handling weekly submission")
                 await ctx.send("Lurk mode activated", delete_after=DeleteAfterTime)
-                await self.assignWeeklyAsyncRole(ctx)
+                await self.assignWeeklyAsyncRole(ctx.guild, ctx.author)
             # For a valid submission, we forward it to submit_time and then assign the weekly racer role
             elif len(args) == 2 and self.game_time_is_valid(args[0]):
                 logging.info("handling weekly submission")
@@ -1244,8 +1386,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 race_id = self.queryLatestWeeklyRaceId()
                 # Add the author's ID to the list of active submissions to avoid their messages getting deleted and usage instructions printed
                 self.weekly_submit_author_list.append(message.author.id)
-                await self.submit_time(ctx, race_id, args[0], args[1])
-                await self.assignWeeklyAsyncRole(ctx)
+                #await self.submit_time(ctx, race_id, args[0], args[1])
+                await self.assignWeeklyAsyncRole(ctx.guild, ctx.author)
                 # Submission is done, can remove from active list
                 self.weekly_submit_author_list.remove(message.author.id)
             # Any other message, we just reply with the usage instructions
@@ -1256,30 +1398,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             await asyncio.sleep(DeleteAfterTime)
             await message.delete()
 
-        # Check if this is a tourney async submission
-        if message.guild.id == self.server_id and message.channel.id == self.tourney_submit_channel_id:
-            # A valid submission will be in the form '<race_id> <igt> <collection_rate>'
-            args = message.content.split(' ')
-            ctx = await self.bot.get_context(message)
-            # For a valid submission, we forward it to submit_time and then assign the weekly racer role
-            if len(args) == 3 and self.game_time_is_valid(args[1]):
-                logging.info("handling tourney submission")
-                # Add the author's ID to the list of active submissions to avoid their messages getting deleted and usage instructions printed
-                self.tourney_submit_author_list.append(message.author.id)
-                await self.submit_time(ctx, args[0], args[1], args[2])
-                # Submission is done, remove from active list
-                self.tourney_submit_author_list.remove(message.author.id)
-            # Any other message, we just reply with the usage instructions
-            elif message.author.id not in self.tourney_submit_author_list:
-                await message.delete()
-                await message.channel.send("Missing or invalid parameters. Race ID, IGT (in H:MM:SS format) and collection rate are required.", delete_after=DeleteAfterTime)
-            # Wait and then delete the message just in case it's not otherwise handled/deleted above
-            await asyncio.sleep(DeleteAfterTime)
-            await message.delete()
-
         if "pendant pod" in message.content.lower():
             logging.info("adding pendant pod emoji")
-            guild = self.bot.get_guild(self.server_id)
+            guild = self.bot.get_guild(self.server_info.server_id)
             emoji = None
             for e in guild.emojis:
                 if str(e) == PendantPodEmoteStr:
@@ -1288,13 +1409,18 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 await message.add_reaction(emoji)
 
 ########################################################################################################################
-# ON_READY
+# STARTUP and SHUTDOWN
 ########################################################################################################################
     @commands.Cog.listener("on_ready")
     async def on_ready_handler(self):
         logging.info("Async Handler Ready")
         if self.test_mode:
             logging.info("  Running in test mode")
+        await self.addSubmitButtons()
+
+    async def close(self):
+        logging.info("Shutting down Async Handler")
+        await self.removeWeeklySubmitButtons()
 
 ########################################################################################################################
 # REACTION ADD HANDLER

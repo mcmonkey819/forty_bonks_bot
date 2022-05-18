@@ -37,6 +37,10 @@ class Bot(commands.Bot):
         #await self.change_presence(status='invisible')
         logging.info('Logged on as {0} (ID: {0.id})'.format(self.user))
 
+    async def close(self):
+        await self.get_cog('AsyncRaceHandler').close()
+        await super().close()
+
 
 intents = nextcord.Intents.all()
 bot = Bot(intents=intents)
