@@ -8,6 +8,7 @@ import re
 import asyncio
 from datetime import datetime, date
 from async_db_orm import *
+from enum import Enum
 
 # 40 Bonks Server Info
 FORTY_BONKS_SERVER_ID = 485284146063736832
@@ -112,6 +113,7 @@ def sort_igt(submission):
     return ret
 
 WeeklySubmitButtonId = "WeeklyAsyncSubmit"
+WeeklyEditButtonId = "WeeklyAsyncEdit"
 WeeklyFFButtonId = "WeeklyAsyncFF"
 ForfeitModalId = "ForfeitModal"
 SubmitModalId = "SubmitModal"
@@ -145,89 +147,109 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # UI Elements
 ########################################################################################################################
+
+########################################################################################################################
+# Submit time modal/view
+    class SubmitType(Enum):
+        SUBMIT  = 1
+        EDIT    = 2
+        FORFEIT = 3
+
     class SubmitTimeModal(nextcord.ui.Modal):
-        def __init__(self, submit_callback, isWeeklyAsync):
+        def __init__(self, asyncHandler, race_id, isWeeklyAsync, submitType):
             super().__init__("Async Time Submit")
-            self.submit_callback = submit_callback
+            self.asyncHandler = asyncHandler
+            self.race_id = race_id
             self.isWeeklyAsync = isWeeklyAsync
+            self.submitType = submitType
 
             self.igt = nextcord.ui.TextInput(
                 label="Enter IGT in format `H:MM:SS`",
                 min_length=7,
-                max_length=7)
-            self.add_item(self.igt)
+                max_length=8)
 
             self.collection_rate = nextcord.ui.TextInput(
                 label="Enter collection rate`",
                 min_length=1,
                 max_length=3)
-            self.add_item(self.collection_rate)
 
             self.rta = nextcord.ui.TextInput(
                 label="Enter RTA in format `H:MM:SS`",
                 required=False,
                 min_length=7,
                 max_length=7)
-            self.add_item(self.rta)
 
             self.comment = nextcord.ui.TextInput(
                 label="Enter Comment",
                 required=False,
                 min_length=1,
                 max_length=1024)
-            self.add_item(self.comment)
 
-            self.next_mode = None
-            if isWeeklyAsync:
-                self.next_mode = nextcord.ui.TextInput(
-                    label="Enter Next Mode Suggestion",
-                    required=False,
-                    min_length=1,
-                    max_length=1024)
-                self.add_item(self.next_mode)
-
-        async def callback(self, interaction: nextcord.Interaction) -> None:
-            await self.submit_callback(self, interaction)
-
-    class ForfeitModal(nextcord.ui.Modal):
-        def __init__(self, ff_callback, isWeeklyAsync):
-            super().__init__(title="Async Forfeit", custom_id=ForfeitModalId)
-            self.ff_callback = ff_callback
-            self.isWeeklyAsync = isWeeklyAsync
-
-            self.comment = nextcord.ui.TextInput(
-                label="Enter Comment",
+            self.next_mode = nextcord.ui.TextInput(
+                label="Enter Next Mode Suggestion",
                 required=False,
-                min_length=0,
+                min_length=1,
                 max_length=1024)
-            self.add_item(self.comment)
 
-            self.next_mode = None
+            if submitType is not AsyncHandler.SubmitType.FORFEIT:
+                self.add_item(self.igt)
+                self.add_item(self.collection_rate)
+                self.add_item(self.rta)
+            self.add_item(self.comment)
             if isWeeklyAsync:
-                self.next_mode = nextcord.ui.TextInput(
-                    label="Enter Next Mode Suggestion",
-                    required=False,
-                    min_length=1,
-                    max_length=1024)
                 self.add_item(self.next_mode)
 
         async def callback(self, interaction: nextcord.Interaction) -> None:
-            if self.ff_callback is not None:
-                await self.ff_callback(self, interaction)
+            await self.asyncHandler.submit_time(self, interaction, self.race_id)
+            if self.isWeeklyAsync:
+                await self.asyncHandler.assignWeeklyAsyncRole(interaction.guild, interaction.user)
 
     class SubmitFFView(nextcord.ui.View):
-        def __init__(self, submit_callback, ff_callback, isWeeklyAsync=False):
+        def __init__(self, asyncHandler, race_id, isWeeklyAsync=False):
             super().__init__()
-            self.submit = AsyncHandler.SubmitTimeModal(submit_callback, isWeeklyAsync)
-            self.ff = AsyncHandler.ForfeitModal(ff_callback, isWeeklyAsync)
+            self.submit = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.SUBMIT)
+            self.edit = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.EDIT)
+            self.ff = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.FORFEIT)
+            self.race_id = race_id
+            self.asyncHandler = asyncHandler
 
         @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Submit Time', custom_id=WeeklySubmitButtonId)
         async def submit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-            await interaction.response.send_modal(self.submit)
-        
-        @nextcord.ui.button(style=nextcord.ButtonStyle.grey, label='FF', custom_id=WeeklyFFButtonId)
+            logging.info("submit click")
+            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
+            if submission is None:
+                await interaction.response.send_modal(self.submit)
+            else:
+                await interaction.send("You've already submitted for this race, use the 'Edit Time' button to modify your submission", ephemeral=True)
+
+        @nextcord.ui.button(style=nextcord.ButtonStyle.grey, label='Edit Time', custom_id=WeeklyEditButtonId)
+        async def edit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
+            logging.info("edit click")
+            # Get the user's current submission
+            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
+            if submission is not None:
+                # Update default values using the existing submission
+                self.edit.igt.default_value = submission.finish_time_igt
+                self.edit.collection_rate.default_value = str(submission.collection_rate)
+                self.edit.rta.default_value = submission.finish_time_rta
+                self.edit.comment.default_value = submission.comment
+                self.edit.next_mode.default_value = submission.next_mode
+
+            # Send the modal
+            await interaction.response.send_modal(self.edit)
+
+        @nextcord.ui.button(style=nextcord.ButtonStyle.red, label='FF', custom_id=WeeklyFFButtonId)
         async def ff_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-            await interaction.response.send_modal(self.ff)
+            logging.info("ff click")
+            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
+            if submission is None:
+                await interaction.response.send_modal(self.ff)
+            else:
+                await interaction.send("You've already submitted for this race, use the 'Edit Time' button to modify your submission", ephemeral=True)
+
+########################################################################################################################
+# Add race modal/view
+
 
 ########################################################################################################################
 # Utility Functions
@@ -258,20 +280,6 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         return ret
 
     ####################################################################################################################
-    # Called when the weekly async FF modal is completed
-    async def on_weekly_ff(self, modal: SubmitTimeModal, interaction: nextcord.Interaction):
-        logging.info("handling weekly FF")
-        await interaction.send(f"Lurk mode activated", ephemeral=True)
-        await self.assignWeeklyAsyncRole(interaction.guild, interaction.user)
-
-    ####################################################################################################################
-    # Called when the weekly async submit modal is completed
-    async def on_weekly_submit(self, modal: SubmitTimeModal, interaction: nextcord.Interaction):
-        race_id = self.queryLatestWeeklyRaceId()
-        await self.submit_time(modal, interaction, race_id)
-        await self.assignWeeklyAsyncRole(interaction.guild, interaction.user)
-
-    ####################################################################################################################
     # Removes the weekly async submit/ff button message
     async def removeWeeklySubmitButtons(self):
         # Get the weekly submit channel
@@ -296,7 +304,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         # Remove any existing submit button message
         await self.removeWeeklySubmitButtons()
         # Add the new message
-        await weekly_submit_channel.send("Click below to submit a time or FF from this week's race", view=self.SubmitFFView(self.on_weekly_submit, self.on_weekly_ff, True))
+        await weekly_submit_channel.send("Click below to submit a time or FF from this week's race", view=self.SubmitFFView(self, self.queryLatestWeeklyRaceId(), True))
 
     ####################################################################################################################
     # This function breaks a response into multiple messages that meet the Discord API character limit
@@ -708,6 +716,17 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         else:
             await ctx.send("There are no async submissions in that range")
 
+    ####################################################################################################################
+    # Retrieves a submission based on race and user IDs. Returns None if no matching submission exists
+    def getSubmission(self, race_id, user_id):
+        try:
+            submission = AsyncSubmission.select()                                                                           \
+                                        .where((AsyncSubmission.race_id == race_id) & (AsyncSubmission.user_id == user_id)) \
+                                        .get()
+        except:
+            submission = None
+        return submission
+
 ########################################################################################################################
 # DASH
 ########################################################################################################################
@@ -888,48 +907,39 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     
         self.checkAddMember(interaction.user)
         user_id = interaction.user.id
-        igt = modal.igt.value
-        rta = modal.rta.value
-        cr_int = modal.collection_rate.value
+        igt = "23:59:59" if modal.igt.value is None else modal.igt.value
+        rta = None if modal.rta.value == "" else modal.rta.value
+        cr_int = "216" if modal.collection_rate.value is None else modal.collection_rate.value
         comment = modal.comment.value
-        next_mode = None
-        if modal.isWeeklyAsync:
-            next_mode = modal.next_mode.value
-    
+        next_mode = modal.next_mode.value
+
         parse_error = not self.game_time_is_valid(igt)
         if rta is not None and not parse_error:
             parse_error = not self.game_time_is_valid(rta)
     
         if parse_error:
-            interaction.send("IGT or CR is in the wrong format, evaluate your life choices and try again", ephemeral=True, delete_after=DeleteAfterTimeEphemeral)
+            await interaction.send("IGT, RTA or CR is in the wrong format, evaluate your life choices and try again", ephemeral=True, delete_after=DeleteAfterTimeEphemeral)
             return
     
         # Fix IGT and RTA with missing zero in hour place
         if len(igt.split(':')) == 2:
             igt = "0:" + igt
     
-        if len(rta.split(':')) == 2:
+        if rta is not None and len(rta.split(':')) == 2:
             rta = "0:" + rta
     
-        # Check to see if there's already a submission for this race from this user
-        try:
-            submission = AsyncSubmission.select()                                                                           \
-                                        .where((AsyncSubmission.race_id == race_id) & (AsyncSubmission.user_id == user_id)) \
-                                        .get()
-        except:
-            submission = None
-    
-        if submission is not None:
-            #### CMC HANDLE REPLACE LOGIC ##########
-            logging.info("ADD REPLACE LOGIC")
-            #replace_msg = await interaction.send("You already have submitted a time for this race, react with thumbs up to replace with this time")
-            #user_reaction = await self.userReactEmoji(ctx, replace_msg, YesNoEmojiList)
-            #if user_reaction != ThumbsUpEmoji:
-            #    await ctx.send("Submission cancelled", delete_after=DeleteAfterTime)
-            #    return
+        submission = self.getSubmission(race_id, user_id)
+        if submission is None:
+            # Create a brand new submission
+            submission = AsyncSubmission(race_id= race_id, user_id= user_id, username= interaction.user.name, finish_time_igt= igt, collection_rate= cr_int, finish_time_rta=rta, comment=comment, next_mode=next_mode)
         else:
-            submission = AsyncSubmission(race_id= race_id, user_id= user_id, username= interaction.user.name, finish_time_igt= igt, collection_rate= cr_int, finish_time_rta=rta, comment=comment)
-    
+            # Update the fields of the existing submission
+            submission.finish_time_igt= igt
+            submission.collection_rate= cr_int
+            submission.finish_time_rta=rta
+            submission.comment=comment
+            submission.next_mode=next_mode
+
         submission.submit_date = datetime.now().isoformat(timespec='minutes').replace('T', ' ')
         submission.save()
         await interaction.send("Submission complete", ephemeral=True, delete_after=DeleteAfterTimeEphemeral)
@@ -947,6 +957,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # ADD_RACE
 ########################################################################################################################
+    #@nextcord.slash_command(guild_ids=[BTT_SERVER_ID], description="Add Async Race")
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
     @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
