@@ -9,32 +9,54 @@ import asyncio
 from datetime import datetime, date
 from async_db_orm import *
 from enum import Enum
+from typing import NamedTuple
+
+class ServerInfo(NamedTuple):
+    server_id: int
+
+    # Channel IDs
+    weekly_submit_channel: int
+    tourney_submit_channel: int
+    race_creator_channel: int
+    bot_command_channels: list[int]
+    weekly_leaderboard_channel: int
+    tourney_leaderboard_channel: int
+    announcements_channel: int
+
+    # Role IDs
+    race_creator_role: int
+    weekly_race_done_role: int
+    weekly_racer_role: int
 
 # 40 Bonks Server Info
-FORTY_BONKS_SERVER_ID = 485284146063736832
-FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL = 907626630816620624
-FORTY_BONKS_TOURNEY_SUBMIT_CHANNEL = 0
-FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL = 907626794474156062
-FORTY_BONKS_BOT_COMMAND_CHANNELS = [ 907627122732982363, FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL ]
-FORTY_BONKS_RACE_CREATOR_ROLE = 782804969107226644
-FORTY_BONKS_WEEKLY_RACE_DONE_ROLE = 732078040892440736
-FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL = 747239559175208961
-FORTY_BONKS_TOURNEY_LEADERBOARD_CHANNEL = 0
-FORTY_BONKS_ANNOUNCEMENTS_CHANNEL = 734104388821450834
-FORTY_BONKS_WEEKLY_RACER_ROLE = 732048874222387200
+FortyBonksServerInfo = ServerInfo(
+    server_id = 485284146063736832,
+    weekly_submit_channel = 907626630816620624,
+    tourney_submit_channel = 0,
+    race_creator_channel = 907626794474156062,
+    bot_command_channels = [ 907627122732982363, 907626794474156062 ],
+    race_creator_role = 782804969107226644,
+    weekly_race_done_role = 732078040892440736,
+    weekly_leaderboard_channel = 747239559175208961,
+    tourney_leaderboard_channel = 0,
+    announcements_channel = 734104388821450834,
+    weekly_racer_role = 732048874222387200)
 
 # Bot Testing Things Server Info
-BTT_SERVER_ID = 853060981528723468
-BTT_RACE_CREATOR_ROLE = 888940865337299004
-BTT_WEEKLY_SUBMIT_CHANNEL = 892861800612249680
-BTT_TOURNEY_SUBMIT_CHANNEL = 952612873534836776
-BTT_RACE_CREATOR_COMMAND_CHANNEL = 896494916493004880
-BTT_BOT_COMMAND_CHANNELS = [ 853061634855665694, 854508026832748544, BTT_RACE_CREATOR_COMMAND_CHANNEL ]
-BTT_WEEKLY_RACE_DONE_ROLE = 895026847954374696
-BTT_WEEKLY_LEADERBOARD_CHANNEL = 895681087701909574
-BTT_TOURNEY_LEADERBOARD_CHANNEL = 952612956724682763
-BTT_ANNOUNCEMENTS_CHANNEL = 896494916493004880
-BTT_WEEKLY_RACER_ROLE = 931946945562423369
+BttServerInfo = ServerInfo(
+    server_id = 853060981528723468,
+    race_creator_role = 888940865337299004,
+    weekly_submit_channel = 892861800612249680,
+    tourney_submit_channel = 952612873534836776,
+    race_creator_channel = 896494916493004880,
+    bot_command_channels = [ 853061634855665694, 854508026832748544, 896494916493004880 ],
+    weekly_race_done_role = 895026847954374696,
+    weekly_leaderboard_channel = 895681087701909574,
+    tourney_leaderboard_channel = 952612956724682763,
+    announcements_channel = 896494916493004880,
+    weekly_racer_role = 931946945562423369)
+
+SupportedServerList = [ FortyBonksServerInfo.server_id, BttServerInfo.server_id ]
 
 PRODUCTION_DB = "AsyncRaceInfo.db"
 TEST_DB = "testDbUtil.db"
@@ -84,22 +106,22 @@ async def isSubmitChannel(ctx):
     return isWeeklySubmitChannel(ctx) or isTourneySubmitChannel(ctx)
 
 async def isWeeklySubmitChannel(ctx):
-    if ctx.channel.id == FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL or ctx.channel.id == BTT_WEEKLY_SUBMIT_CHANNEL:
+    if ctx.channel.id == FortyBonksServerInfo.weekly_submit_channel or ctx.channel.id == BttServerInfo.weekly_submit_channel:
         return True
     return False
 
 async def isTourneySubmitChannel(ctx):
-    if ctx.channel.id == FORTY_BONKS_TOURNEY_SUBMIT_CHANNEL or ctx.channel.id == BTT_TOURNEY_SUBMIT_CHANNEL:
+    if ctx.channel.id == FortyBonksServerInfo.tourney_submit_channel or ctx.channel.id == BttServerInfo.tourney_submit_channel:
         return True
     return False
 
 async def isRaceCreatorCommandChannel(ctx):
-    if ctx.channel.id == FORTY_BONKS_RACE_CREATOR_COMMAND_CHANNEL or ctx.channel.id == BTT_RACE_CREATOR_COMMAND_CHANNEL:
+    if ctx.channel.id == FortyBonksServerInfo.race_creator_channel or ctx.channel.id == BttServerInfo.race_creator_channel:
         return True
     return False
 
 async def isBotCommandChannel(ctx):
-    if ctx.channel.id in FORTY_BONKS_BOT_COMMAND_CHANNELS or ctx.channel.id in BTT_BOT_COMMAND_CHANNELS:
+    if ctx.channel.id in FortyBonksServerInfo.bot_command_channels or ctx.channel.id in BttServerInfo.bot_command_channels:
         return True
     return False
 
@@ -128,20 +150,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.db = SqliteDatabase(PRODUCTION_DB)
         self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
         self.weekly_category_id = 1
+        self.weekly_submit_author_list = []
         self.tourney_category_id = 2
+        self.tourney_submit_author_list = []
         self.pt = PrettyTable()
         self.resetPrettyTable()
-        self.server_id = FORTY_BONKS_SERVER_ID
-        self.race_creator_role_id = FORTY_BONKS_RACE_CREATOR_ROLE
-        self.weekly_submit_channel_id = FORTY_BONKS_WEEKLY_SUBMIT_CHANNEL
-        self.tourney_submit_channel_id = FORTY_BONKS_TOURNEY_SUBMIT_CHANNEL
-        self.weekly_submit_author_list = []
-        self.tourney_submit_author_list = []
-        self.weekly_racer_role = FORTY_BONKS_WEEKLY_RACER_ROLE
-        self.weekly_race_done_role = FORTY_BONKS_WEEKLY_RACE_DONE_ROLE
-        self.weekly_leaderboard_channel = FORTY_BONKS_WEEKLY_LEADERBOARD_CHANNEL
-        self.tourney_leaderboard_channel = FORTY_BONKS_TOURNEY_LEADERBOARD_CHANNEL
-        self.announcements_channel = FORTY_BONKS_ANNOUNCEMENTS_CHANNEL
+        self.server_info = FortyBonksServerInfo
         self.replace_poop_with_tp = True
 
 ########################################################################################################################
@@ -258,15 +272,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.test_mode = True
         self.db = SqliteDatabase(TEST_DB)
         self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
-        self.server_id = BTT_SERVER_ID
-        self.race_creator_role_id = BTT_RACE_CREATOR_ROLE
-        self.weekly_submit_channel_id = BTT_WEEKLY_SUBMIT_CHANNEL
-        self.tourney_submit_channel_id = BTT_TOURNEY_SUBMIT_CHANNEL
-        self.weekly_racer_role = BTT_WEEKLY_RACER_ROLE
-        self.weekly_race_done_role = BTT_WEEKLY_RACE_DONE_ROLE
-        self.weekly_leaderboard_channel = BTT_WEEKLY_LEADERBOARD_CHANNEL
-        self.tourney_leaderboard_channel = BTT_TOURNEY_LEADERBOARD_CHANNEL
-        self.announcements_channel = BTT_ANNOUNCEMENTS_CHANNEL
+        self.server_info = BttServerInfo
 
     def resetPrettyTable(self):
         self.pt.set_style(DEFAULT)
@@ -274,7 +280,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     def isRaceCreator(self, ctx):
         ret = False
-        role = ctx.guild.get_role(self.race_creator_role_id)
+        role = ctx.guild.get_role(self.server_info.race_creator_role_id)
         if role in ctx.author.roles:
             ret =  True
         return ret
@@ -283,7 +289,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     # Removes the weekly async submit/ff button message
     async def removeWeeklySubmitButtons(self):
         # Get the weekly submit channel
-        weekly_submit_channel = self.bot.get_channel(self.weekly_submit_channel_id)
+        weekly_submit_channel = self.bot.get_channel(self.server_info.weekly_submit_channel)
         message_list = await weekly_submit_channel.history(limit=200).flatten()
         # Search the message history for the message containing the submit/ff buttons. We identify the message by looking
         # for a message containing an action row where the first item is a button with the WeeklySubmitButtonId custom_id
@@ -300,7 +306,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     # Adds the weekly async submit/ff button message
     async def addSubmitButtons(self):
         # Get the weekly submit channel
-        weekly_submit_channel = self.bot.get_channel(self.weekly_submit_channel_id)
+        weekly_submit_channel = self.bot.get_channel(self.server_info.weekly_submit_channel)
         # Remove any existing submit button message
         await self.removeWeeklySubmitButtons()
         # Add the new message
@@ -511,13 +517,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Assigns the weekly async racer role, which unlocks access to the spoiler channel
     async def assignWeeklyAsyncRole(self, guild, author):
-        role = nextcord.utils.get(guild.roles, id=self.weekly_race_done_role)
+        role = nextcord.utils.get(guild.roles, id=self.server_info.weekly_race_done_role)
         await author.add_roles(role)
 
     ####################################################################################################################
     # Removes the weekly async racer role from all users in the server
     async def removeWeeklyAsyncRole(self, ctx):
-        role = nextcord.utils.get(ctx.guild.roles, id=self.weekly_race_done_role)
+        role = nextcord.utils.get(ctx.guild.roles, id=self.server_info.weekly_race_done_role)
         for m in ctx.guild.members:
             await m.remove_roles(role)
 
@@ -568,7 +574,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     # Updates the weekly leaderboard message
     async def updateLeaderboardMessage(self, race_id, guild):
         # Remove all messages from the leaderboard channel
-        leaderboard_channel = guild.get_channel(self.weekly_leaderboard_channel)
+        leaderboard_channel = guild.get_channel(self.server_info.weekly_leaderboard_channel)
         await leaderboard_channel.purge()
 
         # Then build and post the latest leaderboard
@@ -619,7 +625,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Updates the current mode message in the weekly submit channel
     async def updateWeeklyModeMessage(self, race):
-        weekly_submit_channel = self.bot.get_channel(self.weekly_submit_channel_id)
+        weekly_submit_channel = self.bot.get_channel(self.server_info.weekly_submit_channel)
         message_list = await weekly_submit_channel.history(limit=200).flatten()
         for message in message_list:
             if message.author.id == self.bot.user.id:
@@ -635,8 +641,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Posts an announcement about a new weekly async
     async def post_annoucement(self, race, ctx):
-        announcements_channel = self.bot.get_channel(self.announcements_channel)
-        role = ctx.guild.get_role(self.weekly_racer_role)
+        announcements_channel = self.bot.get_channel(self.server_info.announcements_channel)
+        role = ctx.guild.get_role(self.server_info.weekly_racer_role)
         announcement_text = f'{role.mention} The new weekly async is live! Mode is: {race.description}'
         msg = await announcements_channel.send(announcement_text)
         
@@ -960,7 +966,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     #@nextcord.slash_command(guild_ids=[BTT_SERVER_ID], description="Add Async Race")
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def add_race(self, ctx: commands.Context, seed, category, should_start):
         ''' 
         Adds a new async race
@@ -999,7 +1005,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def add_weekly_race(self, ctx: commands.Context, seed):
         ''' 
         Adds a new weekly async race
@@ -1014,7 +1020,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def add_tourney_race(self, ctx: commands.Context, seed):
         ''' 
         Adds a new tourney practice async race
@@ -1029,7 +1035,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def edit_race(self, ctx: commands.Context, race_id: int):
         ''' 
         Edits an async race with the given race_id
@@ -1086,7 +1092,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def start_race(self, ctx: commands.Context, race_id: int):
         ''' 
         Starts an async race with the given race_id, making it active and avaiable for submissions
@@ -1117,7 +1123,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def remove_race(self, ctx: commands.Context, race_id: int):
         ''' 
         Removes an async race with the given race_id
@@ -1162,7 +1168,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command()
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def wheel_info(self, ctx: commands.Context):
         ''' 
         Prints the current wheel info, this will be a list of all users who have raced in one or both of the two most recent
@@ -1208,7 +1214,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command(hidden=True)
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def mod_util(self, ctx: commands.Context, function: int):
         ''' 
         A selection of utility functions. Parameter determines which function to run:
@@ -1236,7 +1242,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command(hidden=True)
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def user_races(self, ctx: commands.Context, user_id: int):
         ''' 
         Shows races for the user with the provided user ID
@@ -1258,7 +1264,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @commands.command(hidden=True)
     @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FORTY_BONKS_RACE_CREATOR_ROLE, BTT_RACE_CREATOR_ROLE)
+    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
     async def edit_submission(self, ctx: commands.Context, submission_id: int):
         ''' 
         Edits a submission on behalf of a user
@@ -1299,7 +1305,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             return
 
         # Check if this is a weekly async submission
-        if message.guild.id == self.server_id and message.channel.id == self.weekly_submit_channel_id:
+        if message.guild.id == self.server_info.server_id and message.channel.id == self.server_info.weekly_submit_channel:
             args = message.content.split(' ')
             ctx = await self.bot.get_context(message)
 
@@ -1329,7 +1335,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
         if "pendant pod" in message.content.lower():
             logging.info("adding pendant pod emoji")
-            guild = self.bot.get_guild(self.server_id)
+            guild = self.bot.get_guild(self.server_info.server_id)
             emoji = None
             for e in guild.emojis:
                 if str(e) == PendantPodEmoteStr:
