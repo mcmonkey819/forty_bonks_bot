@@ -65,6 +65,8 @@ TEST_DB = "testDbUtil.db"
 DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
 DeleteAfterTimeEphemeral = 15
+SelectTimeout = 30
+AddRaceTimeout = 120
 ItemsPerPage = 10
 NextPageEmoji = '▶️'
 OneEmoji = '1️⃣'
@@ -162,8 +164,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 # UI Elements
 ########################################################################################################################
 
-########################################################################################################################
-# Submit time modal/view
+    ########################################################################################################################
+    # Submit time modal/view
     class SubmitType(Enum):
         SUBMIT  = 1
         EDIT    = 2
@@ -261,8 +263,64 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             else:
                 await interaction.send("You've already submitted for this race, use the 'Edit Time' button to modify your submission", ephemeral=True)
 
-########################################################################################################################
-# Add race modal/view
+    ########################################################################################################################
+    # Add race modal
+    class AddRaceModal(nextcord.ui.Modal):
+        def __init__(self, asyncHandler):
+            super().__init__("Add Race")
+            self.asyncHandler = asyncHandler
+            self.is_done = False
+
+            self.mode = nextcord.ui.TextInput(
+                label="Mode Description`",
+                min_length=1,
+                max_length=50)
+            self.add_item(self.mode)
+
+            self.seed = nextcord.ui.TextInput(label="Seed Link`")
+            self.add_item(self.seed)
+
+            self.instructions = nextcord.ui.TextInput(
+                label="Additional Instructions`",
+                required=False)
+            self.add_item(self.instructions)
+
+        async def callback(self, interaction: nextcord.Interaction):
+            self.is_done = True
+
+    class CategorySelect(nextcord.ui.Select):
+        def __init__(self, callback_func, add_race_modal):
+            self.callback_func = callback_func
+            self.add_race_modal = add_race_modal
+
+            # Query the categories
+            categories = RaceCategory.select()
+
+            # Create the options list from the categories
+            options = []
+            for c in categories:
+                options.append(nextcord.SelectOption(label=c.name, description=c.description, value=str(c.id)))
+
+            # Initialize the base class
+            super().__init__(
+                placeholder="Select Race Category...",
+                min_values=1,
+                max_values=1,
+                options=options)
+
+        async def callback(self, interaction: nextcord.Interaction):
+            await interaction.response.send_modal(self.add_race_modal)
+            await self.callback_func(int(interaction.data['values'][0]))
+
+    class AddRaceView(nextcord.ui.View):
+        def __init__(self, add_race_modal):
+            super().__init__()
+            self.category_id = 0
+            self.category_select = AsyncHandler.CategorySelect(self.callback_func, add_race_modal)
+            self.add_item(self.category_select)
+
+        async def callback_func(self, category_id):
+            self.category_id = category_id
 
 
 ########################################################################################################################
@@ -273,6 +331,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.db = SqliteDatabase(TEST_DB)
         self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
         self.server_info = BttServerInfo
+        SelectTimeout = 10
+        AddRaceTimeout = 30
 
     def resetPrettyTable(self):
         self.pt.set_style(DEFAULT)
@@ -963,42 +1023,47 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # ADD_RACE
 ########################################################################################################################
-    #@nextcord.slash_command(guild_ids=[BTT_SERVER_ID], description="Add Async Race")
-    @commands.command()
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
-    async def add_race(self, ctx: commands.Context, seed, category, should_start):
-        ''' 
-        Adds a new async race
-    
-            Parameters:
-                seed - link to the seed or patch file for the race
-                should_start (optional) - Set to 0 if you would NOT like to run the `$start_race` command immediately after adding
-        '''
-        logging.info('Executing $add_race command')
-        def checkSameAuthor(message):
-            return message.author == ctx.author
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Add Async Race")
+    async def add_race(
+        self,
+        interaction,
+        is_active: int = nextcord.SlashOption(
+            name="is_active",
+            description="Make the race active immediately?",
+            choices={"Yes": 1, "No": 0})):
 
-        mode = await self.ask(ctx, "What's the mode? (limited to 50 characters)", checkSameAuthor)
-        if mode is None: return
+        logging.info('Executing add_race command')
 
-        mode = mode[:50]
+        add_race_modal = AsyncHandler.AddRaceModal(self)
+        add_race_view = AsyncHandler.AddRaceView(add_race_modal)
+        await interaction.send(view=add_race_view)
 
-        msg = await self.ask(ctx, "Is there any additional info? Reply with 'No' or the info text", checkSameAuthor)
-        if msg is None: return
+        sleep_counter = 0
+        while(not add_race_modal.is_done and sleep_counter < AddRaceTimeout):
+            await asyncio.sleep(1)
+            sleep_counter += 1
+            if sleep_counter > SelectTimeout:
+                if add_race_view.category_id == 0:
+                    await interaction.delete_original_message()
+                    await interaction.followup().send("Selection timeout, be quicker next time", ephemeral=True)
+                    return
 
-        instructions = "NULL"
-        if msg.lower() != "no":
-            # Need to quote the message
-            instructions = '"{}"'.format(msg)
+        await interaction.delete_original_message()
 
-        # Add the race with the provided info. Currently all are set to the weekly category and inactive
-        new_race = AsyncRace(seed=seed, description=mode, additional_instructions=instructions, category_id=self.weekly_category_id, active=0)
-        new_race.save()
-        await ctx.send("Added race ID: {}".format(new_race.id))
-
-        if should_start != 0:
-            await self.start_race(ctx, new_race)
+        if add_race_modal.is_done:
+            start_date = None
+            if is_active:
+                start_date = date.today().isoformat()
+            # Add the race with the provided info. Currently all are set to the weekly category and inactive
+            new_race = AsyncRace(
+                seed = add_race_modal.seed.value,
+                description = add_race_modal.mode.value,
+                additional_instructions = add_race_modal.instructions.value,
+                category_id = add_race_view.category_id,
+                active = is_active,
+                start=start_date)
+            new_race.save()
+            await interaction.followup.send(f"Added race ID: {new_race.id}", ephemeral=True)
 
 ########################################################################################################################
 # ADD_WEEKLY_RACE
