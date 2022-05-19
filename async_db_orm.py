@@ -11,7 +11,7 @@ class RaceCategory(Model):
 
 class AsyncRace(Model):
     id = IntegerField(primary_key= True)
-    start = DateTimeField()
+    start = DateField()
     seed = CharField()
     description = CharField()
     additional_instructions = CharField()
