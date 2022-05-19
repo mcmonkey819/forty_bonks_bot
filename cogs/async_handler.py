@@ -224,49 +224,6 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             if self.isWeeklyAsync:
                 await self.asyncHandler.assignWeeklyAsyncRole(interaction.guild, interaction.user)
 
-    class SubmitFFView(nextcord.ui.View):
-        def __init__(self, asyncHandler, race_id, isWeeklyAsync=False):
-            super().__init__()
-            self.submit = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.SUBMIT)
-            self.edit = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.EDIT)
-            self.ff = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.FORFEIT)
-            self.race_id = race_id
-            self.asyncHandler = asyncHandler
-
-        @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Submit Time', custom_id=AsyncSubmitButtonId)
-        async def submit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-            logging.info("submit click")
-            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
-            if submission is None:
-                await interaction.response.send_modal(self.submit)
-            else:
-                await interaction.send("You've already submitted for this race, use the 'Edit Time' button to modify your submission", ephemeral=True)
-
-        @nextcord.ui.button(style=nextcord.ButtonStyle.grey, label='Edit Time', custom_id=AsyncEditButtonId)
-        async def edit_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-            logging.info("edit click")
-            # Get the user's current submission
-            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
-            if submission is not None:
-                # Update default values using the existing submission
-                self.edit.igt.default_value = submission.finish_time_igt
-                self.edit.collection_rate.default_value = str(submission.collection_rate)
-                self.edit.rta.default_value = submission.finish_time_rta
-                self.edit.comment.default_value = submission.comment
-                self.edit.next_mode.default_value = submission.next_mode
-
-            # Send the modal
-            await interaction.response.send_modal(self.edit)
-
-        @nextcord.ui.button(style=nextcord.ButtonStyle.red, label='FF', custom_id=AsyncFFButtonId)
-        async def ff_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-            logging.info("ff click")
-            submission = self.asyncHandler.getSubmission(self.race_id, interaction.user.id)
-            if submission is None:
-                await interaction.response.send_modal(self.ff)
-            else:
-                await interaction.send("You've already submitted for this race, use the 'Edit Time' button to modify your submission", ephemeral=True)
-
     ########################################################################################################################
     # ADD_RACE Elements
     class AddRaceModal(nextcord.ui.Modal):
@@ -1228,7 +1185,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 new_race.save()
                 await interaction.followup.send(f"Added race ID: {new_race.id}", ephemeral=True)
         else:
-            interaction.send("You do not have permissions to use this command", ephemeral=True)
+            await interaction.send("You do not have permissions to use this command", ephemeral=True)
 
 ########################################################################################################################
 # EDIT_RACE
