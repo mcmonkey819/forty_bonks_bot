@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 from peewee import *
+import config
+
+db_path = config.PRODUCTION_DB
+if config.TEST_MODE:
+    db_path = config.TEST_DB
+db = SqliteDatabase(db_path)
 
 class RaceCategory(Model):
     id = IntegerField(primary_key=True)
@@ -8,6 +14,7 @@ class RaceCategory(Model):
 
     class Meta:
         table_name = 'race_categories'
+        database = db
 
 class AsyncRace(Model):
     id = IntegerField(primary_key= True)
@@ -20,6 +27,7 @@ class AsyncRace(Model):
 
     class Meta:
         table_name = 'async_races'
+        database = db
 
 class AsyncRacer(Model):
     user_id = IntegerField(primary_key=True)
@@ -28,6 +36,7 @@ class AsyncRacer(Model):
 
     class Meta:
         table_name = 'async_racers'
+        database = db
 
 class AsyncSubmission(Model):
     id = IntegerField(primary_key=True)
@@ -43,3 +52,4 @@ class AsyncSubmission(Model):
 
     class Meta:
         table_name = 'async_submissions'
+        database = db

@@ -62,9 +62,6 @@ BttServerInfo = ServerInfo(
 
 SupportedServerList = [ FortyBonksServerInfo.server_id, BttServerInfo.server_id ]
 
-PRODUCTION_DB = "AsyncRaceInfo.db"
-TEST_DB = "testDbUtil.db"
-
 # Discord limit is 2000 characters, subtract a few to account for formatting, newlines, etc
 DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
@@ -155,20 +152,23 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     def __init__(self, bot):
         self.bot = bot
+        self.test_mode = False
+        self.server_info = FortyBonksServerInfo
         if config.TEST_MODE:
             self.setTestMode()
-        else:
-            self.test_mode = False
-            self.db = SqliteDatabase(PRODUCTION_DB)
-            self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
         self.weekly_category_id = 1
         self.weekly_submit_author_list = []
         self.tourney_category_id = 2
         self.tourney_submit_author_list = []
         self.pt = PrettyTable()
         self.resetPrettyTable()
-        self.server_info = FortyBonksServerInfo
         self.replace_poop_with_tp = True
+
+    def setTestMode(self):
+        self.test_mode = True
+        self.server_info = BttServerInfo
+        SelectTimeout = 10
+        AddRaceTimeout = 30
 
 ########################################################################################################################
 # UI Elements
@@ -288,6 +288,35 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
         async def callback_func(self, category_id):
             self.category_id = category_id
+
+    ########################################################################################################################
+    # Are you sure prompt
+    class YesNoSelect(nextcord.ui.Select):
+        def __init__(self, callback_func,):
+            self.callback_func = callback_func
+            options = [
+                nextcord.SelectOption(label="Yes", description="Yes", emoji=ThumbsUpEmoji, value=1),
+                nextcord.SelectOption(label="No", description="No", emoji=ThumbsDownEmoji, value=0)]
+
+            # Initialize the base class
+            super().__init__(
+                placeholder="Are you sure?",
+                min_values=1,
+                max_values=1,
+                options=options)
+
+        async def callback(self, interaction: nextcord.Interaction):
+            await self.callback_func(self.values[0])
+
+    class YesNoView(nextcord.ui.View):
+        def __init__(self):
+            super().__init__()
+            self.add_item(AsyncHandler.YesNoSelect(self.callback_func))
+            self.confirmed = None
+
+        async def callback_func(self, confirmed):
+            logging.info(f"Confirmed: {confirmed}")
+            self.confirmed = int(confirmed)
 
     ########################################################################################################################
     # Race Selection Elements
@@ -412,14 +441,6 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # Utility Functions
 ########################################################################################################################
-    def setTestMode(self):
-        self.test_mode = True
-        self.db = SqliteDatabase(TEST_DB)
-        self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
-        self.server_info = BttServerInfo
-        SelectTimeout = 10
-        AddRaceTimeout = 30
-
     def resetPrettyTable(self):
         self.pt.set_style(DEFAULT)
         self.pt.clear()
@@ -1042,7 +1063,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                     category: int = nextcord.SlashOption(
                             description="Race Category to Filter For",
                             required=False,
-                            min_value=1),
+                            choices = getRaceCategoryChoices()),
                     page: int = nextcord.SlashOption(description="Page number to display", required=False, min_value=1)):
         logging.info('Executing races command')
         await interaction.response.defer()
@@ -1065,9 +1086,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                              .order_by(AsyncRace.id.desc())            \
                              .paginate(page, ItemsPerPage)
         else:
-            races = AsyncRace.select()                                                            \
-                             .where(AsyncRace.category_id == category & AsyncRace.active == True) \
-                             .order_by(AsyncRace.id.desc())                                       \
+            races = AsyncRace.select()                                                                \
+                             .where((AsyncRace.category_id == category) & (AsyncRace.active == True)) \
+                             .order_by(AsyncRace.id.desc())                                           \
                              .paginate(page, ItemsPerPage)
         
         if races is not None and len(races) > 0:
@@ -1274,25 +1295,11 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # REMOVE_RACE
 ########################################################################################################################
-    @commands.command()
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
-    async def remove_race(self, ctx: commands.Context, race_id: int):
-        ''' 
-        Removes an async race with the given race_id
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Remove Async Race")
+    async def remove_race(self, interaction, race_id: int):
+        logging.info('Executing remove_race command')
+        await interaction.response.defer()
 
-            Required Parameters:
-                race_id - ID of the race being removed.
-        '''
-        def checkYesNo(message):
-            ret = False
-            if message.author == ctx.author:
-                msg = message.content.lower()
-                if msg == "yes" or msg == "no":
-                    ret = True
-            return ret
-            
-        logging.info('Executing $remove_race command')
         race = self.get_race(race_id)
         if race is not None:
             # Check first to see if there are any submissions to this race
@@ -1302,19 +1309,24 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             except:
                 submissions = None
             if submissions is not None:
-                await ctx.send("This race has user submissions and cannot be removed via command, please contact the bot overlord to remove it.")
+                await interaction.followup.send("This race has user submissions and cannot be removed via command, please contact the bot overlord to remove it.", ephemeral=True)
             else:
-                await ctx.send(f'Removing race {race.id}')
-                confirm_question = "Are you sure you want to remove this race? This cannot be undone. Reply Yes or No"
-                msg = await self.ask(ctx, confirm_question, checkYesNo)
-                if msg is None: return
-                if msg.lower() == "yes":
+                confirm_view = AsyncHandler.YesNoView()
+                await interaction.followup.send(view=confirm_view, ephemeral=True)
+
+                sleep_counter = 0
+                while(confirm_view.confirmed is None and sleep_counter < SelectTimeout):
+                    await asyncio.sleep(1)
+                    sleep_counter += 1
+                if confirm_view.confirmed is None:
+                    await interaction.followup.send("Selection timeout, I don't have all day!")
+                elif confirm_view.confirmed > 0:
+                    await interaction.followup.send(f'Removing race {race.id}')
                     race.delete_instance()
-                    await ctx.send(f"Race {race_id} removed")
                 else:
-                    await ctx.send("Remove cancelled")
+                    await interaction.followup.send("Remove cancelled")
         else:
-            ctx.send(f"Race ID {race_id} does not exist", delete_after=DeleteAfterTime)
+            await interaction.followup(f"Race ID {race_id} does not exist", ephemeral=True)
 
 ########################################################################################################################
 # WHEEL_INFO
