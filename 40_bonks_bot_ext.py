@@ -4,6 +4,7 @@ from nextcord.ext import commands
 import sqlite3
 from datetime import time
 import config
+import bot_tokens
 import argparse
 import logging
 import asyncio
@@ -14,11 +15,11 @@ parser = argparse.ArgumentParser(description='40 Bonks Discord Bot')
 parser.add_argument('-test', '-t', action='store_true', help='Runs the bot in test mode')
 args = parser.parse_args(sys.argv[1:])
 
-bot_token = config.PRODUCTION_TOKEN
+bot_token = bot_tokens.PRODUCTION_TOKEN
 dbName = "AsyncRaceInfo.db"
 test_mode = args.test == True or config.TEST_MODE
 if test_mode:
-    bot_token = config.MCMONKEY_TEST_TOKEN
+    bot_token = bot_tokens.MCMONKEY_TEST_TOKEN
     dbName = "testDbUtil.db"
 dbConn = sqlite3.connect(dbName)
 dbCursor = dbConn.cursor()

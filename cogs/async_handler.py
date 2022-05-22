@@ -372,6 +372,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             self.race_id = race_id
             self.asyncHandler = asyncHandler
         async def callback(self, interaction):
+            await interaction.response.defer()
             await self.asyncHandler.leaderboard_impl(interaction, self.race_id)
 
     class RaceInfoButton(nextcord.ui.Button):
@@ -1221,7 +1222,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         logging.info('Executing edit_race command')
 
         if not self.isRaceCreator(interaction.guild, interaction.user):
-            await interaction.followup.send("You do not have permission to use this command", ephemeral=True)
+            await interaction.response.send("You do not have permission to use this command", ephemeral=True)
             return
 
         race = self.get_race(race_id)
@@ -1322,7 +1323,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # WHEEL_INFO
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=SupportedServerList, description="Remove Async Race")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Show Wheel Info")
     async def wheel_info(self, interaction):
         logging.info('Executing wheel_info command')
         await interaction.response.defer()
@@ -1368,67 +1369,70 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # MOD_UTIL
 ########################################################################################################################
-    @commands.command(hidden=True)
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
-    async def mod_util(self, ctx: commands.Context, function: int):
-        ''' 
-        A selection of utility functions. Parameter determines which function to run:
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Mod Utilities")
+    async def mod_util(self,
+                      interaction,
+                      function: int = nextcord.SlashOption(
+                            description="Utility Function to Run",
+                            choices = { "Update Leaderboard Channel": 1, "Update Weekly Mode Message": 2, "Toggle TP": 3}),
+                      race_id: int = nextcord.SlashOption(
+                                  description="Race ID to use for function 2",
+                                  required=False,
+                                  min_value=1)):
 
-            Required Parameter:
-                function - Which utility function to run. Options are:
-                    1 - Force update leaderboard message
-                    2 - Force update weekly submit channel message
-                    3 - Toggle enable/disable of toilet paper
-        '''
-        logging.info('Executing $mod_util command')
+        if not self.isRaceCreator(interaction.guild, interaction.user):
+            await interaction.response.send("You do not have permission to use this command", ephemeral=True)
+            return
+
+        logging.info('Executing mod_util command')
         if function == 1:
             await self.updateLeaderboardMessage(self.queryLatestWeeklyRaceId(), ctx.guild)
-            await ctx.send("Updated weekly leaderboard channel")
+            await interaction.response.send("Updated weekly leaderboard channel", ephemeral=True)
         elif function == 2:
-            race = self.get_race(race_id)
-            await self.updateWeeklyModeMessage(race)
-            await ctx.send("Updated weekly mode message in submit channel")
+            if race_id is not None:
+                race = self.get_race(race_id)
+                await self.updateWeeklyModeMessage(race)
+                await interaction.response.send("Updated weekly mode message in submit channel", ephemeral=True)
+            else:
+                await interaction.response.send("You must provide a race_id with this function", ephemeral=True)
         elif function == 3:
             self.replace_poop_with_tp = not self.replace_poop_with_tp
-            await ctx.send("Toilet paper replacement is now {}".format("Enabled" if self.replace_poop_with_tp else "Disabled"))
+            await interaction.response.send("Toilet paper replacement is now {}".format("Enabled" if self.replace_poop_with_tp else "Disabled"), ephemeral=True)
 
 ########################################################################################################################
 # EDIT_SUBMISSION
 ########################################################################################################################
-    @commands.command(hidden=True)
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
-    async def edit_submission(self, ctx: commands.Context, submission_id: int):
-        ''' 
-        Edits a submission on behalf of a user
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Edit User Submission")
+    async def edit_submission(self, interaction, submission_id: int):
+        logging.info('Executing edit_submission command')
 
-            Required Parameter:
-                submission_id - ID of the submission to edit
-        '''
-        logging.info('Executing $edit_submission command')
-        submission_to_edit = AsyncSubmission.select().where(AsyncSubmission.id == submission_id).get()
+        try:
+            submission_to_edit = AsyncSubmission.select().where(AsyncSubmission.id == submission_id).get()
+        except:
+            submission_to_edit = None
+
         if submission_to_edit is None:
-            await ctx.send("No submission found with ID {}".format(submission_id))
+            await interaction.response.send(f"No submission found with ID {submission_id}", ephemeral=True)
             return
 
-        def checkInfo(message):
-            ret = False
-            if len(message.content.split(' ')) >= 2 and len(message.content.split(' ')) <= 3:
-                ret = True
-            return ret
+        is_race_creator = self.isRaceCreator(interaction.guild, interaction.user)
+        if is_race_creator or submission_to_edit.user_id == interaction.user.id:
+            race = self.get_race(submission_to_edit.race_id)
+            submit_time_modal = AsyncHandler.SubmitTimeModal(self,
+                                                             race.id,
+                                                             (race.category_id == self.weekly_category_id),
+                                                             AsyncHandler.SubmitType.EDIT)
+            submit_time_modal.igt.default_value = submission_to_edit.finish_time_igt
+            submit_time_modal.collection_rate.default_value = submission_to_edit.collection_rate
+            submit_time_modal.rta.default_value = submission_to_edit.finish_time_rta
+            submit_time_modal.comment.default_value = submission_to_edit.comment
+            submit_time_modal.next_mode.default_value = submission_to_edit.next_mode
+            await interaction.response.send_modal(submit_time_modal)
 
-        new_info_prompt = "Enter the new info as follows, RTA can be left out if unavailable: `<IGT in H:MM:SS> <cr> {RTA in H:MM:SS}`"
-        info_msg = await self.ask(ctx, new_info_prompt, checkInfo)
-        parts = info_msg.split(' ')
-        if self.game_time_is_valid(parts[0]):
-            submission_to_edit.finish_time_igt = parts[0]
-            submission_to_edit.collection_rate = parts[1]
-            if len(parts) == 3 and self.game_time_is_valid(parts[2]):
-                submission_to_edit.finish_time_rta = parts[2]
+            await interaction.followup.send(f"Updated submission ID {submission_id}", ephemeral=True)
+        else:
+            interaction.response.send("You don't have permission. Only race creators can edit other users' submissions", ephemeral=True)
 
-            submission_to_edit.save()
-            await ctx.send(f"Updated submission ID {submission_id}")
 
 ########################################################################################################################
 # ON_MESSAGE
