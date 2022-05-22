@@ -60,14 +60,17 @@ BttServerInfo = ServerInfo(
     weekly_racer_role = 931946945562423369,
     modchat_channel = 854508026832748544)
 
-SupportedServerList = [ FortyBonksServerInfo.server_id, BttServerInfo.server_id ]
+
+SupportedServerList = [ BttServerInfo.server_id ]
+if not config.TEST_MODE:
+    SupportedServerList = [ FortyBonksServerInfo.server_id, BttServerInfo.server_id ]
 
 # Discord limit is 2000 characters, subtract a few to account for formatting, newlines, etc
 DiscordApiCharLimit = 2000 - 10
 DeleteAfterTime = 30
 DeleteAfterTimeEphemeral = 15
 SelectTimeout = 30
-AddRaceTimeout = 120
+ModalTimeout = 120
 ItemsPerPage = 5
 NextPageEmoji = '▶️'
 OneEmoji = '1️⃣'
@@ -135,6 +138,13 @@ def getRaceCategoryChoices():
         choices[c.name] = c.id
     return choices
 
+def getInactiveRaceChoices():
+    races = AsyncRace.select().where(AsyncRace.active == False)
+    choices = {}
+    for r in races:
+        choices[f"{r.id} - {r.description}"] = r.id
+    return choices
+
 def sort_igt(submission):
     igt = submission.finish_time_igt
     # Convert the time to seconds for sorting
@@ -168,7 +178,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         self.test_mode = True
         self.server_info = BttServerInfo
         SelectTimeout = 10
-        AddRaceTimeout = 30
+        ModalTimeout = 30
 
 ########################################################################################################################
 # UI Elements
@@ -231,11 +241,10 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 await self.asyncHandler.assignWeeklyAsyncRole(interaction.guild, interaction.user)
 
     ########################################################################################################################
-    # ADD_RACE Elements
+    # ADD/EDIT_RACE Elements
     class AddRaceModal(nextcord.ui.Modal):
-        def __init__(self, asyncHandler):
+        def __init__(self):
             super().__init__("Add Race")
-            self.asyncHandler = asyncHandler
             self.is_done = False
 
             self.mode = nextcord.ui.TextInput(
@@ -807,7 +816,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     ####################################################################################################################
     # Posts an announcement about a new weekly async
-    async def post_annoucement(self, race, ctx):
+    async def post_announcement(self, race, ctx):
         announcements_channel = self.bot.get_channel(self.server_info.announcements_channel)
         role = ctx.guild.get_role(self.server_info.weekly_racer_role)
         announcement_text = f'{role.mention} The new weekly async is live! Mode is: {race.description}'
@@ -939,7 +948,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # DASH
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Go ahead, see what happens when you try to go fast")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Go ahead, see what happens when you try to go fast")
     async def dash(self, interaction):
         logging.info('Executing dash command')
         await interaction.send("!!!!BONK!!!!")
@@ -947,7 +956,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # SHOW_RACES
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show Race Results for a User")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Show Race Results for a User")
     async def show_races(self,
                          interaction,
                          page: int = nextcord.SlashOption(description="Page number to display", required=False, min_value=1),
@@ -1012,7 +1021,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # LEADERBOARD
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show Race Leaderboard")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Show Race Leaderboard")
     async def leaderboard(self,
                           interaction,
                           race_id: int = nextcord.SlashOption(
@@ -1057,7 +1066,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # RACES
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show Current Races")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Show Current Races")
     async def races(self,
                     interaction,
                     category: int = nextcord.SlashOption(
@@ -1117,7 +1126,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # WEEKLY_ASYNC_INFO
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show info for past weekly async races")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Show info for past weekly async races")
     async def weekly_async_info(self,
                                 interaction,
                                 race_id: int = nextcord.SlashOption(
@@ -1162,7 +1171,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # ADD_RACE
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Add Async Race")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Add Async Race")
     async def add_race(
         self,
         interaction,
@@ -1172,12 +1181,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         await interaction.response.defer()
 
         if self.isRaceCreator(interaction.guild, interaction.user):
-            add_race_modal = AsyncHandler.AddRaceModal(self)
+            add_race_modal = AsyncHandler.AddRaceModal()
             add_race_view = AsyncHandler.AddRaceView(add_race_modal)
             await interaction.followup.send(view=add_race_view, ephemeral=True)
 
             sleep_counter = 0
-            while(not add_race_modal.is_done and sleep_counter < AddRaceTimeout):
+            while(not add_race_modal.is_done and sleep_counter < ModalTimeout):
                 await asyncio.sleep(1)
                 sleep_counter += 1
                 if sleep_counter > SelectTimeout:
@@ -1207,98 +1216,80 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # EDIT_RACE
 ########################################################################################################################
-    @commands.command()
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
-    async def edit_race(self, ctx: commands.Context, race_id: int):
-        ''' 
-        Edits an async race with the given race_id
-    
-            Required Parameters:
-                race_id - ID of the race being edited.
-        '''
-        logging.info('Executing $edit_race command')
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Edit Async Race")
+    async def edit_race(self, interaction, race_id: int):
+        logging.info('Executing edit_race command')
+
+        if not self.isRaceCreator(interaction.guild, interaction.user):
+            await interaction.followup.send("You do not have permission to use this command", ephemeral=True)
+            return
+
         race = self.get_race(race_id)
-        def checkChoice(message):
-            ret = False
-            if message.author == ctx.author:
-                if len(message.content) == 1:
-                    value = int(message.content)
-                    if value >= 1 and value <= 4:
-                        ret = True
-            return ret
+        if race is not None:
+            add_race_modal = AsyncHandler.AddRaceModal()
+            add_race_modal.mode.default_value = race.description
+            add_race_modal.seed.default_value = race.seed
+            add_race_modal.instructions.default_value = race.additional_instructions
+            await interaction.response.send_modal(add_race_modal)
 
-        def checkSameAuthor(message):
-            return message.author == ctx.author
-
-        edit_choice = 0
-        is_updated = False
-        while edit_choice != 4:
-            edit_question = "What do you want to edit:\n  1 - Seed Link\n  2 - Mode\n  3 - Additional Info\n  4 - I'm done"
-            edit_choice_msg = await self.ask(ctx, edit_question, checkChoice)
-            if edit_choice_msg is None: return
-            edit_choice = int(edit_choice_msg)
-            if edit_choice == 1:
-                new_value_question = f"Current value is \n{race.seed}\nWhat's the new value?"
-                value_msg = await self.ask(ctx, new_value_question, checkSameAuthor)
-                if value_msg is None: return
-                race.seed = value_msg
+            sleep_counter = 0
+            while(not add_race_modal.is_done and sleep_counter < ModalTimeout):
+                await asyncio.sleep(1)
+                sleep_counter += 1
+            if add_race_modal.is_done:
+                race.description = add_race_modal.mode.value
+                race.seed = add_race_modal.seed.value
+                race.additional_instructions = add_race_modal.instructions.value
                 race.save()
-                await ctx.send(f"Updated race {race_id}")
-            elif edit_choice == 2:
-                new_value_question = f"Current value is \n{race.description}\nWhat's the new value?"
-                value_msg = await self.ask(ctx, new_value_question, checkSameAuthor)
-                if value_msg is None: return
-                race.description = value_msg
-                race.save()
-                await ctx.send(f"Updated race {race_id}")
-            elif edit_choice == 3:
-                new_value_question = f"Current value is \n{race.additional_instructions}\nWhat's the new value?"
-                value_msg = await self.ask(ctx, new_value_question, checkSameAuthor)
-                if value_msg is None: return
-                race.additional_instructions = value_msg
-                race.save()
-                await ctx.send(f"Updated race {race_id}")
-
+                await interaction.followup.send(f"Edit of race {race.id} complete", ephemeral=True)
+            else:
+                await interaction.followup.send(timeout_msg, ephemeral=True)
+        else:
+            await interaction.followup.send(f"Race ID {race_id} not found", ephemeral=True)
 
 ########################################################################################################################
 # START_RACE
 ########################################################################################################################
-    @commands.command()
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
-    async def start_race(self, ctx: commands.Context, race_id: int):
-        ''' 
-        Starts an async race with the given race_id, making it active and avaiable for submissions
-    
-            Required Parameters:
-                race_id - ID of the race being started.
-        '''
-        logging.info('Executing $start_race command')
-        race = self.get_race(race_id)
-        if race is not None and race.active:
-            await ctx.send(f'Race ID {race.id} was already started on {race.start}')
-            await self.updateWeeklyModeMessage(race)
-        else:
-            start_date = date.today().isoformat()
-            logging.info("Start Date: {}".format(start_date))
-            race.start = start_date
-            race.active = True
-            race.save()
-            await ctx.send(f'Started race {race.id}')
-            if race.category_id == self.weekly_category_id:
-                await self.updateWeeklyModeMessage(race)
-                await self.updateLeaderboardMessage(race.id, ctx.guild)
-                await self.removeWeeklyAsyncRole(ctx)
-                await self.post_annoucement(race, ctx)
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Start Async Race")
+    async def start_race(self,
+                         interaction,
+                         race_id: int = nextcord.SlashOption(
+                            description="Race to Start",
+                            choices = getInactiveRaceChoices())):
+        logging.info('Executing start_race command')
+        await interaction.response.defer()
+
+        if not self.isRaceCreator(interaction.guild, interaction.user):
+            await interaction.followup.send("You do not have permission to use this command", ephemeral=True)
+            return
+
+        if race_id is not None:
+            race = self.get_race(race_id)
+            if race is not None:
+                start_date = date.today().isoformat()
+                race.start = start_date
+                race.active = True
+                race.save()
+                await interaction.followup.send(f"Started race {race.id}", ephemeral=True)
+                if race.category_id == self.weekly_category_id:
+                    await self.updateWeeklyModeMessage(race)
+                    await self.updateLeaderboardMessage(race.id, ctx.guild)
+                    await self.removeWeeklyAsyncRole(ctx)
+                    await self.post_announcement(race, ctx)
+            else:
+                await interaction.followup.send(f"Race ID {race.id} not found", ephemeral=True)
 
 ########################################################################################################################
 # REMOVE_RACE
 ########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Remove Async Race")
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Remove Async Race")
     async def remove_race(self, interaction, race_id: int):
         logging.info('Executing remove_race command')
         await interaction.response.defer()
+
+        if not self.isRaceCreator(interaction.guild, interaction.user):
+            await interaction.followup.send("You do not have permission to use this command", ephemeral=True)
+            return
 
         race = self.get_race(race_id)
         if race is not None:
@@ -1331,22 +1322,22 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
 # WHEEL_INFO
 ########################################################################################################################
-    @commands.command()
-    @commands.check(isRaceCreatorCommandChannel)
-    @commands.has_any_role(FortyBonksServerInfo.race_creator_role, BttServerInfo.race_creator_role)
-    async def wheel_info(self, ctx: commands.Context):
-        ''' 
-        Prints the current wheel info, this will be a list of all users who have raced in one or both of the two most recent
-        weekly asyncs and will include their most recent mode suggestion and their wheel weight.
-        '''
-        logging.info('Executing $wheel_info command')
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Remove Async Race")
+    async def wheel_info(self, interaction):
+        logging.info('Executing wheel_info command')
+        await interaction.response.defer()
+
+        if not self.isRaceCreator(interaction.guild, interaction.user):
+            await interaction.followup.send("You do not have permission to use this command", ephemeral=True)
+            return
+
         racers = AsyncRacer.select()
         # Query the most recent weekly races
         recent_races = AsyncRace.select()                                                                               \
                                 .where((AsyncRace.category_id == self.weekly_category_id) & (AsyncRace.active == True)) \
                                 .order_by(AsyncRace.start.desc())
 
-        wheel_list = ["*Name* > *Mode*\n"]
+        wheel_list = ["**Name* > *Mode**\n"]
         for r in racers:
             # Query mode suggestions for this user, we will query each of the two most recent weekly async races. If the user has not completed
             # either async then the query will return None
@@ -1372,7 +1363,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 if next_mode_str != "None":
                     wheel_list.append(f"{r.username} > {next_mode_str}")
 
-        await ctx.send('\n'.join(wheel_list))
+        await interaction.followup.send('\n'.join(wheel_list), ephemeral=True)
 
 ########################################################################################################################
 # MOD_UTIL
