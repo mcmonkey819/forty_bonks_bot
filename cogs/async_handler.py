@@ -10,6 +10,7 @@ from datetime import datetime, date
 from async_db_orm import *
 from enum import Enum
 from typing import NamedTuple
+import config
 
 class ServerInfo(NamedTuple):
     server_id: int
@@ -130,6 +131,13 @@ async def isBotCommandChannel(ctx):
         return True
     return False
 
+def getRaceCategoryChoices():
+    cats = RaceCategory.select()
+    choices = {}
+    for c in cats:
+        choices[c.name] = c.id
+    return choices
+
 def sort_igt(submission):
     igt = submission.finish_time_igt
     # Convert the time to seconds for sorting
@@ -147,9 +155,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     def __init__(self, bot):
         self.bot = bot
-        self.test_mode = False
-        self.db = SqliteDatabase(PRODUCTION_DB)
-        self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
+        if config.TEST_MODE:
+            self.setTestMode()
+        else:
+            self.test_mode = False
+            self.db = SqliteDatabase(PRODUCTION_DB)
+            self.db.bind([RaceCategory, AsyncRace, AsyncRacer, AsyncSubmission])
         self.weekly_category_id = 1
         self.weekly_submit_author_list = []
         self.tourney_category_id = 2
@@ -805,55 +816,6 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             return False
 
     ####################################################################################################################
-    # Displays race submissions for the given user_id
-    async def show_races_impl(self, interaction, page, user_id):
-        query_results = AsyncSubmission.select()                                     \
-                                       .where(AsyncSubmission.user_id == user_id)         \
-                                       .order_by(AsyncSubmission.submit_date.desc()) \
-                                       .paginate(page, ItemsPerPage)
-
-        latest_weekly_id = self.queryLatestWeeklyRaceId()
-        await interaction.response.defer()
-
-        if len(query_results) > 0:
-            self.resetPrettyTable()
-            self.pt.hrules = True
-            self.pt.field_names = ["Date", "Place", "IGT", "Collection Rate", "RTA", "Mode", "Race ID", "Submission ID"]
-            self.pt._max_width = {"Mode": 50}
-            race_id_list = []
-            for result in query_results:
-                # First find info about the race this submission is for
-                race_id = result.race_id
-                race_id_list.append(race_id)
-                race = self.get_race(race_id)
-                date        = result.submit_date
-                mode        = race.description if race is not None else ""
-                igt         = result.finish_time_igt
-                cr          = result.collection_rate
-                rta         = result.finish_time_rta
-                submit_id   = result.id
-                place       = self.get_place(race, user_id)
-
-                if rta is None: rta = ""
-
-                # Hide completion info if this is the current weekly async
-                if race_id == latest_weekly_id:
-                    igt = "**:**:**"
-                    rta = "**:**:**"
-                    cr = "***"
-                    place = "****"
-                self.pt.add_row([date, place, igt, cr, rta, mode, race_id, submit_id])
-
-            total_submissions = AsyncSubmission.select(fn.COUNT(AsyncSubmission.id)).where(AsyncSubmission.user_id == user_id).get()
-            await interaction.followup.send(f"Recent Async Submissions, page {page}:", ephemeral=True)
-            table_message_list = self.buildResponseMessageList(self.pt.get_string())
-            for table_message in table_message_list:
-                await interaction.followup.send(f"`{table_message}`", ephemeral=True)
-            await interaction.followup.send(view=AsyncHandler.ShowRacesView(self, race_id_list))
-        else:
-            await ctx.send("There are no async submissions in that range")
-
-    ####################################################################################################################
     # Retrieves a submission based on race and user IDs. Returns None if no matching submission exists
     def getSubmission(self, race_id, user_id):
         try:
@@ -898,36 +860,6 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         seed_embed = nextcord.Embed(title="{}".format(race.description), url=race.seed, color=nextcord.Colour.random())
         seed_embed.set_thumbnail(url="https://alttpr.com/i/logo.png")
         return seed_embed
-
-    ####################################################################################################################
-    # Does the actual work for the leaderboard command, moved to a separate function to be reusable with buttons
-    async def leaderboard_impl(self, interaction, race_id):
-        response_obj = interaction
-        if race_id is None:
-            race_id = await self.getRaceIdSelection(interaction)
-            response_obj = interaction.followup
-            if race_id is None:
-                await response_obj.send("Race selection timeout, be quicker next time", ephemeral=True)
-                return
-
-        # check if the user has permission to view the leaderboard. They have permission if they submitted to it or have appropriate role
-        can_view = self.isRaceCreator(interaction.guild, interaction.user) or self.getSubmission(race_id, interaction.user.id) is not None
-        # Make sure this race exists
-        try:
-            race = AsyncRace.select()                       \
-                            .where(AsyncRace.id == race_id) \
-                            .get()
-        except:
-            race = None
-
-        if race is not None and can_view:
-            message_list = self.buildLeaderboardMessageList(race_id)
-            for message in message_list:
-                await response_obj.send(message, ephemeral=True)
-        elif can_view:
-            await response_obj.send(f"Invalid Race ID: {race_id}", ephemeral=True)
-        else:
-            await response_obj.send(f"You must submit a time or FF from the race before viewing the leaderboard", ephemeral=True)
 
     ####################################################################################################################
     # Submits a time to the DB
@@ -983,10 +915,202 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         if race_id == self.queryLatestWeeklyRaceId():
             await self.updateLeaderboardMessage(race_id, interaction.guild)
 
+########################################################################################################################
+# DASH
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Go ahead, see what happens when you try to go fast")
+    async def dash(self, interaction):
+        logging.info('Executing dash command')
+        await interaction.send("!!!!BONK!!!!")
+
+########################################################################################################################
+# SHOW_RACES
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show Race Results for a User")
+    async def show_races(self,
+                         interaction,
+                         page: int = nextcord.SlashOption(description="Page number to display", required=False, min_value=1),
+                         user: nextcord.User = nextcord.SlashOption(description="User to view races for", required=False)):
+        
+        logging.info('Executing show_races command')
+        await interaction.response.defer()
+        if user is None:
+            user = interaction.user
+        if page is None:
+            page = 1
+        self.checkAddMember(user)
+        await self.show_races_impl(interaction, page, user.id)
+
+    ####################################################################################################################
+    # Displays race submissions for the given user_id
+    async def show_races_impl(self, interaction, page, user_id):
+        query_results = AsyncSubmission.select()                                     \
+                                       .where(AsyncSubmission.user_id == user_id)    \
+                                       .order_by(AsyncSubmission.submit_date.desc()) \
+                                       .paginate(page, ItemsPerPage)
+
+        latest_weekly_id = self.queryLatestWeeklyRaceId()
+        if len(query_results) > 0:
+            self.resetPrettyTable()
+            self.pt.hrules = True
+            self.pt.field_names = ["Date", "Place", "IGT", "Collection Rate", "RTA", "Mode", "Race ID", "Submission ID"]
+            self.pt._max_width = {"Mode": 50}
+            race_id_list = []
+            for result in query_results:
+                # First find info about the race this submission is for
+                race_id = result.race_id
+                race_id_list.append(race_id)
+                race = self.get_race(race_id)
+                date        = result.submit_date
+                mode        = race.description if race is not None else ""
+                igt         = result.finish_time_igt
+                cr          = result.collection_rate
+                rta         = result.finish_time_rta
+                submit_id   = result.id
+                place       = self.get_place(race, user_id)
+
+                if rta is None: rta = ""
+
+                # Hide completion info if this is the current weekly async
+                if race_id == latest_weekly_id:
+                    igt = "**:**:**"
+                    rta = "**:**:**"
+                    cr = "***"
+                    place = "****"
+                self.pt.add_row([date, place, igt, cr, rta, mode, race_id, submit_id])
+
+            total_submissions = AsyncSubmission.select(fn.COUNT(AsyncSubmission.id)).where(AsyncSubmission.user_id == user_id).get()
+            await interaction.followup.send(f"Recent Async Submissions, page {page}:", ephemeral=True)
+            table_message_list = self.buildResponseMessageList(self.pt.get_string())
+            for table_message in table_message_list:
+                await interaction.followup.send(f"`{table_message}`", ephemeral=True)
+            await interaction.followup.send(view=AsyncHandler.ShowRacesView(self, race_id_list), ephemeral=True)
+        else:
+            await ctx.send("There are no async submissions in that range")
+
+########################################################################################################################
+# LEADERBOARD
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show Race Leaderboard")
+    async def leaderboard(self,
+                          interaction,
+                          race_id: int = nextcord.SlashOption(
+                            description="Race ID to view leaderboard of",
+                            required=False,
+                            min_value=1)):
+
+        logging.info('Executing leaderboard command')
+        await interaction.response.defer()
+        self.checkAddMember(interaction.user)
+        await self.leaderboard_impl(interaction, race_id)
+
+    ####################################################################################################################
+    # Does the actual work for the leaderboard command, moved to a separate function to be reusable with buttons
+    async def leaderboard_impl(self, interaction, race_id):
+        if race_id is None:
+            race_id = await self.getRaceIdSelection(interaction)
+            interaction.followup = interaction.followup
+            if race_id is None:
+                await interaction.followup.send("Race selection timeout, be quicker next time", ephemeral=True)
+                return
+
+        # check if the user has permission to view the leaderboard. They have permission if they submitted to it or have appropriate role
+        can_view = self.isRaceCreator(interaction.guild, interaction.user) or self.getSubmission(race_id, interaction.user.id) is not None
+        # Make sure this race exists
+        try:
+            race = AsyncRace.select()                       \
+                            .where(AsyncRace.id == race_id) \
+                            .get()
+        except:
+            race = None
+
+        if race is not None and can_view:
+            message_list = self.buildLeaderboardMessageList(race_id)
+            for message in message_list:
+                await interaction.followup.send(message, ephemeral=True)
+        elif can_view:
+            await interaction.followup.send(f"Invalid Race ID: {race_id}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"You must submit a time or FF from the race before viewing the leaderboard", ephemeral=True)
+
+########################################################################################################################
+# RACES
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show Current Races")
+    async def races(self,
+                    interaction,
+                    category: int = nextcord.SlashOption(
+                            description="Race Category to Filter For",
+                            required=False,
+                            min_value=1),
+                    page: int = nextcord.SlashOption(description="Page number to display", required=False, min_value=1)):
+        logging.info('Executing races command')
+        await interaction.response.defer()
+        if category is None:
+            category = self.weekly_category_id
+        if page is None:
+            page = 1
+        await self.races_impl(interaction, category, page)
+
+    ########################################################################################################################
+    # Implementation of the races command, moved to separate function to be able to reuse
+    async def races_impl(self, interaction, category, page):
+        self.checkAddMember(interaction.user)
+        is_race_creator = self.isRaceCreator(interaction.guild, interaction.user)
+
+        races = None
+        if is_race_creator:
+            races = AsyncRace.select()                                 \
+                             .where(AsyncRace.category_id == category) \
+                             .order_by(AsyncRace.id.desc())            \
+                             .paginate(page, ItemsPerPage)
+        else:
+            races = AsyncRace.select()                                                            \
+                             .where(AsyncRace.category_id == category & AsyncRace.active == True) \
+                             .order_by(AsyncRace.id.desc())                                       \
+                             .paginate(page, ItemsPerPage)
+        
+        if races is not None and len(races) > 0:
+            self.resetPrettyTable()
+            
+            if is_race_creator:
+                self.pt.field_names = ["ID", "Start Date", "Mode", "Active"]
+            else:
+                self.pt.field_names = ["ID", "Start Date", "Mode"]
+
+            self.pt._max_width = {"Mode": 50}
+            self.pt.align["Mode"] = "l"
+
+            for race in races:
+                if is_race_creator:
+                    self.pt.add_row([race.id, race.start, race.description, race.active])
+                else:
+                    self.pt.add_row([race.id, race.start, race.description])
+            table_message_list = self.buildResponseMessageList(self.pt.get_string())
+            message = None
+            for table_message in table_message_list:
+                message = await interaction.followup.send(f"`{table_message}`", ephemeral=True)
+        else:
+            await interaction.followup.send("No races found in that range", ephemeral=True)
+
+########################################################################################################################
+# WEEKLY_ASYNC_INFO
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show info for past weekly async races")
+    async def weekly_async_info(self,
+                                interaction,
+                                race_id: int = nextcord.SlashOption(
+                                  description="Race ID to view leaderboard of",
+                                  required=False,
+                                  min_value=1)):
+        logging.info("Executing weekly_async_info command")
+        await interaction.response.defer()
+        self.checkAddMember(interaction.user)
+        await self.show_race_info(interaction, race_id)
+
     ########################################################################################################################
     # Shows info for a given race
     async def show_race_info(self, interaction, race_id):
-        response_obj = interaction
         if race_id is None:
             race_id = await self.getRaceIdSelection(interaction)
             if race_id is None:
@@ -1001,167 +1125,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             except:
                 race = None
             if race is None:
-                response_obj.send(f"No race found for ID {race_id}", ephemeral=True)
+                interaction.followup.send(f"No race found for ID {race_id}", ephemeral=True)
             else:
                 message = self.getRaceInfoTable(race)
-                await response_obj.send(message, embed=self.getSeedEmbed(race))
+                await interaction.followup.send(message, embed=self.getSeedEmbed(race))
                 race_info_view = AsyncHandler.RaceInfoButtonView(self, race_id)
-                await response_obj.send(view=race_info_view)
-
-########################################################################################################################
-# DASH
-########################################################################################################################
-    @commands.command(name="dash")
-    @commands.check(isBotCommandChannel)
-    async def dash(self, ctx: commands.Context):
-        ''' Go ahead, see what happens when you try to go fast'''
-        logging.info('Executing $dash command')
-        await ctx.send("!!!!BONK!!!!")
-        #self.checkAddMember(ctx.author)
-        #mod_channel = ctx.guild.get_channel(self.server_info.modchat_channel)
-        #await mod_channel.send(f"Get me out of this place! {PoopEmoji}")
-
-        ##### CMC Prototype View/Button code ########
-        #class ViewWithButton(nextcord.ui.View):
-        #    self.submit = SubmitTime()
-        #    @nextcord.ui.button(style=nextcord.ButtonStyle.blurple, label='Go Fast!')
-        #    async def click_me_button(self, button: nextcord.ui.Button, interaction: nextcord.Interaction):
-        #        sent_modal = await interaction.response.send_modal(self.submit)
-        #        # Wait for an interaction to be given back
-        #        interaction: nextcord.Interaction = await self.bot.wait_for(
-        #            "modal_submit", 
-        #            check=lambda i: i.data['custom_id'] == sent_modal.custom_id,
-        #        )
-        #
-        #await ctx.send("See what happens when you try to go fast", view=ViewWithButton())
-        #### CMC Prototype View/Button code ########
-
-########################################################################################################################
-# SHOW_RACES
-########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Add Async Race")
-    async def show_races(self,
-                         interaction,
-                         page: int = nextcord.SlashOption(description="Page number to display", required=False, min_value=1),
-                         user: nextcord.User = nextcord.SlashOption(description="User to view races for", required=False)):
-        
-        logging.info('Executing $my_races command')
-        if user is None:
-            user = interaction.user
-        if page is None:
-            page = 1
-        self.checkAddMember(user)
-        await self.show_races_impl(interaction, page, user.id)
-
-########################################################################################################################
-# LEADERBOARD
-########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show Race Leaderboard")
-    async def leaderboard(self,
-                          interaction,
-                          race_id: int = nextcord.SlashOption(
-                            name="race_id",
-                            description="Race ID to view leaderboard of",
-                            required=False,
-                            min_value=1)):
-
-        logging.info('Executing leaderboard command')
-        self.checkAddMember(interaction.user)
-        await self.leaderboard_impl(interaction, race_id)
-
-########################################################################################################################
-# RACES
-########################################################################################################################
-    @commands.command()
-    @commands.check(isBotCommandChannel)
-    async def races(self, ctx: commands.Context, category: int=1, page: int=1):
-        ''' 
-        Displays the list of async race, sorted by most recent
-
-            Optional Parameters:
-                start - By default the command will show the 5 most recent races. To view older races provide a starting point.
-                        For example the command `$races 11` would show the 11th-15th most recent races.
-        '''
-        logging.info('Executing $races command')
-        self.checkAddMember(ctx.author)
-        is_race_creator_channel = await isRaceCreatorCommandChannel(ctx)
-
-        races = None
-        if is_race_creator_channel:
-            races = AsyncRace.select()                                 \
-                             .where(AsyncRace.category_id == category) \
-                             .order_by(AsyncRace.id.desc())            \
-                             .paginate(page, ItemsPerPage)
-        else:
-            races = AsyncRace.select()                                                            \
-                             .where(AsyncRace.category_id == category & AsyncRace.active == True) \
-                             .order_by(AsyncRace.id.desc())                                       \
-                             .paginate(page, ItemsPerPage)
-        
-        if races is not None and len(races) > 0:
-            self.resetPrettyTable()
-            
-            if is_race_creator_channel:
-                self.pt.field_names = ["ID", "Start Date", "Mode", "Active"]
-            else:
-                self.pt.field_names = ["ID", "Start Date", "Mode"]
-
-            self.pt._max_width = {"Mode": 50}
-            self.pt.align["Mode"] = "l"
-
-            for race in races:
-                if is_race_creator_channel:
-                    self.pt.add_row([race.id, race.start, race.description, race.active])
-                else:
-                    self.pt.add_row([race.id, race.start, race.description])
-            table_message_list = self.buildResponseMessageList(self.pt.get_string())
-            message = None
-            for table_message in table_message_list:
-                message = await ctx.send("`{}`".format(table_message))
-            if message is not None:
-                if await self.userReactNextPage(ctx, message):
-                    await self.races(ctx, category, (page+1))
-
-        else:
-            await ctx.send("No races found in that range")
-
-########################################################################################################################
-# WEEKLY_ASYNC_INFO
-########################################################################################################################
-    @nextcord.slash_command(guild_ids=[BttServerInfo.server_id], description="Show info for past weekly async races")
-    async def weekly_async_info(self,
-                                interaction,
-                                race_id: int = nextcord.SlashOption(
-                                  description="Race ID to view leaderboard of",
-                                  required=False,
-                                  min_value=1)):
-        logging.info("Executing weekly_async_info command")
-        self.checkAddMember(interaction.user)
-        await self.show_race_info(interaction, race_id)
-
-########################################################################################################################
-# RACE_INFO
-########################################################################################################################
-    @commands.command()
-    @commands.check(isBotCommandChannel)
-    async def race_info(self, ctx: commands.Context, race_id: int):
-        ''' 
-        Displays full race information for an async race
-
-            Parameters:
-                race_id - The race_id of the race you'd like info for. Use `$races` command to view the list of races and IDs.
-        '''
-        logging.info('Executing $race_info command')
-        self.checkAddMember(ctx.author)
-        race = self.get_race(race_id)
-        is_race_creator_channel = await isRaceCreatorCommandChannel(ctx)
-        table_message_list = self.getRaceInfoTable(race)
-        if table_message_list is not None:
-            for table_message in table_message_list:
-                await ctx.send("`{}`".format(table_message))
-            await ctx.send(embed=self.getSeedEmbed(race))
-        else:
-            await ctx.send("Race ID was not found")
+                await interaction.followup.send(view=race_info_view)
 
 ########################################################################################################################
 ########################################################################################################################
@@ -1176,14 +1145,15 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     async def add_race(
         self,
         interaction,
-        is_active: int = nextcord.SlashOption(description="Make the race active immediately?", choices={"Yes": 1, "No": 0})):
+        create_active: int = nextcord.SlashOption(description="Make the race active immediately?", choices={"Yes": True, "No": False})):
 
         logging.info('Executing add_race command')
+        await interaction.response.defer()
 
         if self.isRaceCreator(interaction.guild, interaction.user):
             add_race_modal = AsyncHandler.AddRaceModal(self)
             add_race_view = AsyncHandler.AddRaceView(add_race_modal)
-            await interaction.send(view=add_race_view, ephemeral=True)
+            await interaction.followup.send(view=add_race_view, ephemeral=True)
 
             sleep_counter = 0
             while(not add_race_modal.is_done and sleep_counter < AddRaceTimeout):
@@ -1197,7 +1167,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
             if add_race_modal.is_done:
                 start_date = None
-                if is_active:
+                if create_active:
                     start_date = date.today().isoformat()
                 # Add the race with the provided info. Currently all are set to the weekly category and inactive
                 new_race = AsyncRace(
@@ -1205,12 +1175,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                     description = add_race_modal.mode.value,
                     additional_instructions = add_race_modal.instructions.value,
                     category_id = add_race_view.category_id,
-                    active = is_active,
-                    start=start_date)
+                    active = create_active)
+                if create_active:
+                    new_race.start = date.today().isoformat()
                 new_race.save()
                 await interaction.followup.send(f"Added race ID: {new_race.id}", ephemeral=True)
         else:
-            await interaction.send("You do not have permissions to use this command", ephemeral=True)
+            await interaction.followup.send("You do not have permissions to use this command", ephemeral=True)
 
 ########################################################################################################################
 # EDIT_RACE

@@ -45,8 +45,8 @@ class Bot(commands.Bot):
 intents = nextcord.Intents.all()
 bot = Bot(intents=intents)
 if test_mode:
-    async_cog = bot.get_cog('AsyncRaceHandler')
-    async_cog.setTestMode()
+    #async_cog = bot.get_cog('AsyncRaceHandler')
+#    async_cog.setTestMode()
     server_utils_cog = bot.get_cog('ServerUtils')
     server_utils_cog.setTestMode()
 bot.run(bot_token)
