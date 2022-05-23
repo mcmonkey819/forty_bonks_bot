@@ -19,7 +19,7 @@ bot_token = bot_tokens.PRODUCTION_TOKEN
 dbName = "AsyncRaceInfo.db"
 test_mode = args.test == True or config.TEST_MODE
 if test_mode:
-    bot_token = bot_tokens.MCMONKEY_TEST_TOKEN
+    bot_token = bot_tokens.TEST_TOKEN
     dbName = "testDbUtil.db"
 dbConn = sqlite3.connect(dbName)
 dbCursor = dbConn.cursor()
