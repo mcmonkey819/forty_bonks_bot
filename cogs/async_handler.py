@@ -274,6 +274,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     class AddRaceView(nextcord.ui.View):
         def __init__(self, add_race_modal):
             super().__init__()
+            self.add_race_modal = add_race_modal
             self.category_select = AsyncHandler.CategorySelect(self.callback_func, add_race_modal)
             self.add_item(self.category_select)
 
@@ -1100,14 +1101,14 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     async def add_race(
         self,
         interaction,
-        create_active: int = nextcord.SlashOption(description="Make the race active immediately?", choices={"Yes": True, "No": False})):
+        start_race: int = nextcord.SlashOption(description="Start the race immediately?", choices={"Yes": True, "No": False})):
 
         logging.info('Executing add_race command')
         await interaction.response.defer()
 
         if self.isRaceCreator(interaction.guild, interaction.user):
             add_race_modal = AsyncHandler.AddRaceModal()
-            if create_active:
+            if start_race:
                 add_race_modal.start_race_callback = self.start_race_impl
             add_race_view = AsyncHandler.AddRaceView(add_race_modal)
             await interaction.followup.send(view=add_race_view, ephemeral=True)
@@ -1174,6 +1175,37 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             await interaction.followup.send(f"No race found for race ID {race_id}", ephemeral=True)
 
 ########################################################################################################################
+# END_RACE
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="End Async Race")
+    async def end_race(self,
+                         interaction,
+                         race_id: int = nextcord.SlashOption(
+                            description="Race to End",
+                            required=False)):
+        logging.info('Executing start_race command')
+        if not self.isRaceCreator(interaction.guild, interaction.user):
+            await interaction.followup.send(NoPermissionMsg, ephemeral=True)
+            return
+
+        if race_id is not None:
+            await self.end_race_impl(interaction, race_id)
+        else:
+            race_select_view = AsyncHandler.RaceSelectView(self.end_race_impl)
+            await interaction.send(view=race_select_view, ephemeral=True)
+
+    ########################################################################################################################
+    # Ends a race
+    async def end_race_impl(self, interaction, race_id):
+        race = self.get_race(race_id)
+        if race is not None:
+            race.active = False
+            race.save()
+            await interaction.followup.send(f"Ended race {race.id}")
+        else:
+            await interaction.followup.send(f"No race found for race ID {race_id}", ephemeral=True)
+
+########################################################################################################################
 # REMOVE_RACE
 ########################################################################################################################
     @nextcord.slash_command(guild_ids=SupportedServerList, description="Remove Async Race")
@@ -1209,6 +1241,15 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             await interaction.send("Remove cancelled")
 
 ########################################################################################################################
+# ADD_CATEGORY
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Add async race category")
+    async def add_category(self, interaction, name, description):
+        new_category = RaceCategory(name, description)
+        new_category.save()
+        interaction.send(f"Created race category {new_category.name} with ID {new_category.id}")
+
+########################################################################################################################
 # WHEEL_INFO
 ########################################################################################################################
     @nextcord.slash_command(guild_ids=SupportedServerList, description="Show Wheel Info")
@@ -1222,7 +1263,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                                 .where((AsyncRace.category_id == self.weekly_category_id) & (AsyncRace.active == True)) \
                                 .order_by(AsyncRace.start.desc())
 
-        wheel_list = ["**Name* > *Mode Suggestion**\n"]
+        wheel_list = ["**Name** > **Mode Suggestion**\n"]
         for r in racers:
             # Query mode suggestions for this user, we will query each of the two most recent weekly async races. If the user has not completed
             # either async then the query will return None
