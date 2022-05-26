@@ -249,8 +249,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 await self.start_race_callback(interaction, race)
 
     class CategorySelect(nextcord.ui.Select):
-        def __init__(self, add_race_modal):
-            self.add_race_modal = add_race_modal
+        def __init__(self, callback_func, data):
+            self.callback_func = callback_func
+            self.user_data = data
 
             # Query the categories
             categories = RaceCategory.select()
@@ -268,13 +269,22 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 options=options)
 
         async def callback(self, interaction: nextcord.Interaction):
-            self.add_race_modal.category_id = int(interaction.data['values'][0])
-            await interaction.response.send_modal(self.add_race_modal)
+            await self.callback_func(interaction, int(interaction.data['values'][0]), self.user_data)
 
     class AddRaceView(nextcord.ui.View):
         def __init__(self, add_race_modal):
             super().__init__()
-            self.category_select = AsyncHandler.CategorySelect(add_race_modal)
+            self.category_select = AsyncHandler.CategorySelect(self.callback_func, add_race_modal)
+            self.add_item(self.category_select)
+
+        async def callback_func(self, interaction, category_id, add_race_modal):
+            self.add_race_modal.category_id = category_id
+            await interaction.response.send_modal(self.add_race_modal)
+
+    class CategorySelectView(nextcord.ui.View):
+        def __init__(self, callback_func, data):
+            super().__init__()
+            self.category_select = AsyncHandler.CategorySelect(callback_func, data)
             self.add_item(self.category_select)
 
     ########################################################################################################################
@@ -314,7 +324,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                              .order_by(AsyncRace.start.desc()) \
                              .limit(25)
 
-            # Create the options list from the categories
+            # Create the options list from the races
             options = []
             for r in races:
                 options.append(nextcord.SelectOption(label=f"Race ID {r.id} - {r.description}", description=r.description, value=str(r.id)))
@@ -335,6 +345,40 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             super().__init__()
             self.callback_func = callback_func
             self.race_select = AsyncHandler.RaceSelect(self.callback_func)
+            self.add_item(self.race_select)
+
+    class MultiRaceSelect(nextcord.ui.Select):
+        def __init__(self, callback_func, data, category_id):
+            self.callback_func = callback_func
+            self.user_data = data
+
+            # Query the active races
+            races = AsyncRace.select()                                                                   \
+                             .where((AsyncRace.active == True) & (AsyncRace.category_id == category_id)) \
+                             .order_by(AsyncRace.start.desc())                                           \
+                             .limit(25)
+
+            # Create the options list from the races
+            options = []
+            for r in races:
+                options.append(nextcord.SelectOption(label=f"Race ID {r.id} - {r.description}", description=r.description, value=str(r.id)))
+
+            # Initialize the base class
+            super().__init__(
+                placeholder="Select Races...",
+                min_values=1,
+                max_values=len(options),
+                options=options)
+
+        async def callback(self, interaction: nextcord.Interaction):
+            await interaction.response.defer()
+            await self.callback_func(interaction, self.user_data, interaction.data['values'])
+
+    class MultiRaceSelectView(nextcord.ui.View):
+        def __init__(self, callback_func, data, category_id):
+            super().__init__()
+            self.callback_func = callback_func
+            self.race_select = AsyncHandler.MultiRaceSelect(self.callback_func, data, category_id)
             self.add_item(self.race_select)
 
     ########################################################################################################################
@@ -488,8 +532,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         else:
             race_id = race.id
         await weekly_submit_channel.send(SubmitChannelMsg, view=AsyncHandler.RaceInfoButtonView(self, race_id))
-        message = self.getRaceInfoTable(race)
-        await weekly_submit_channel.send(message, embed=self.getSeedEmbed(race))
+        await weekly_submit_channel.send(self.getRaceInfoTable(race), embed=self.getSeedEmbed(race))
 
     ####################################################################################################################
     # This function breaks a response into multiple messages that meet the Discord API character limit
@@ -596,6 +639,15 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 place_str += "th"
 
         return place_str
+
+    ####################################################################################################################
+    # Purges all messages sent by BonksBot in the given channel
+    async def purge_bot_messages(self, channel):
+        message_list = await channel.history(limit=25).flatten()
+        bot_message_list = []
+        for message in message_list:
+            if message.author.id == self.bot.user.id:
+                await message.delete()
 
     ####################################################################################################################
     # Determines if an IGT or RTA time string is in the proper H:MM:SS format
@@ -1254,6 +1306,52 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         else:
             interaction.send("You don't have permission. Only race creators can edit other users' submissions", ephemeral=True)
 
+########################################################################################################################
+# PIN RACE INFO
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Pin Race Info")
+    async def pin_race_info(self,
+                            interaction,
+                            channel: nextcord.abc.GuildChannel = nextcord.SlashOption(
+                                description="Channel to pin the race info in")):
+        logging.info("Executing pin_race_info command")
+        is_race_creator = self.isRaceCreator(interaction.guild, interaction.user)
+        if not is_race_creator:
+            await interaction.send(NoPermissionMsg, ephemeral=True)
+            return
+
+        await interaction.response.defer()
+        # Send Select to choose which category
+        await interaction.followup.send(view=AsyncHandler.CategorySelectView(self.pin_race_info_get_races, channel), ephemeral=True)
+
+    ########################################################################################################################
+    async def pin_race_info_get_races(self, interaction, category_id, channel):
+        await interaction.response.defer()
+        # Verify this category has active races to pin
+        try:
+            races = AsyncRace.select()                                                                   \
+                             .where((AsyncRace.category_id == category_id) & (AsyncRace.active == True)) \
+                             .get()
+        except:
+            races = None
+
+        if races is not None:
+            # Send Select to choose which races to pin
+            await interaction.followup.send(view=AsyncHandler.MultiRaceSelectView(self.pin_race_info_impl, channel, category_id), ephemeral=True)
+        else:
+            await interaction.followup.send("There are no active races for that category")
+
+    ########################################################################################################################
+    async def pin_race_info_impl(self, interaction, channel, user_race_choices):
+        await interaction.followup.send("Removing old pinned race messages")
+        await self.purge_bot_messages(channel)
+        await interaction.followup.send("Adding new race messages")
+        for c in user_race_choices:
+            race_id = int(c)
+            race = self.get_race(race_id)
+            await channel.send(view=AsyncHandler.RaceInfoButtonView(self, race_id))
+            await channel.send(self.getRaceInfoTable(race), embed=self.getSeedEmbed(race))
+        await interaction.followup.send("Done")
 
 ########################################################################################################################
 # ON_MESSAGE
