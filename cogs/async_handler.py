@@ -1010,11 +1010,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     @nextcord.slash_command(guild_ids=SupportedServerList, description="Show Current Races")
     async def races(self, interaction):
         logging.info('Executing races command')
-        await interaction.send(view=AsyncHandler.CategorySelectView(self.races_first_impl, 1), ephemeral=True)
+        await interaction.response.defer()
+        await interaction.followup.send(view=AsyncHandler.CategorySelectView(self.races_first_impl, 1), ephemeral=True)
 
     ########################################################################################################################
     async def races_first_impl(self, interaction, category_id, page):
-        await self.races_impl(interaction, AsyncHandler.RacesData(category_id, page))
+        await self.races_impl(interaction, AsyncHandler.RacesData(page=page, category=category_id))
 
     ########################################################################################################################
     # Implementation of the races command, moved to separate function to be able to reuse
