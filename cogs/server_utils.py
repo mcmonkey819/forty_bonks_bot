@@ -4,6 +4,7 @@ import logging
 import asyncio
 from datetime import datetime
 import random
+import config
 
 ServerId        = 0
 RaceCreatorRole = 1
@@ -33,6 +34,8 @@ class ServerUtils(commands.Cog, name='ServerUtils'):
         self.bot = bot
         self.test_mode = False
         self.server_info = FortyBonksServerInfo
+        if config.TEST_MODE:
+            self.setTestMode()
         self.on_demand_vc_ids = []
 
 ########################################################################################################################

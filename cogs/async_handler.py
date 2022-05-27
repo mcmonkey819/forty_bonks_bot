@@ -95,8 +95,8 @@ To correct any information in a submission, simply submit it again. If you take 
 '''
 
 AlreadySubmittedMsg = "You've already submitted for this race, use the 'Edit Time' button to modify your submission"
-NoPermissionMsg = "You do not have permissions to use this command"
-SubmitChannelMsg = "Click below to submit a time or FF from this week's race"
+NoPermissionMsg = "You do not have permissions to use this command in this channel"
+SubmitChannelMsg = "Click below to submit/edit a time or FF from this week's race. Once you've submitted a time you can view the leaderboard."
 
 def getRaceCategoryChoices():
     cats = RaceCategory.select()
@@ -158,7 +158,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     class SubmitTimeModal(nextcord.ui.Modal):
         def __init__(self, asyncHandler, race_id, isWeeklyAsync, submitType):
-            super().__init__("Async Time Submit")
+            super().__init__("Async Time Submit", timeout=None)
             self.asyncHandler = asyncHandler
             self.race_id = race_id
             self.isWeeklyAsync = isWeeklyAsync
@@ -209,7 +209,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     # ADD/EDIT_RACE Elements
     class AddRaceModal(nextcord.ui.Modal):
         def __init__(self, race=None):
-            super().__init__("Add Race")
+            super().__init__("Add Race", timeout=None)
             self.start_race_callback = None
             self.race = race
             self.category_id = None
@@ -273,7 +273,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     class AddRaceView(nextcord.ui.View):
         def __init__(self, add_race_modal):
-            super().__init__()
+            super().__init__(timeout=None)
             self.add_race_modal = add_race_modal
             self.category_select = AsyncHandler.CategorySelect(self.callback_func, add_race_modal)
             self.add_item(self.category_select)
@@ -284,7 +284,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     class CategorySelectView(nextcord.ui.View):
         def __init__(self, callback_func, data):
-            super().__init__()
+            super().__init__(timeout=None)
             self.category_select = AsyncHandler.CategorySelect(callback_func, data)
             self.add_item(self.category_select)
 
@@ -310,7 +310,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     class YesNoView(nextcord.ui.View):
         def __init__(self, callback_func, data):
-            super().__init__()
+            super().__init__(timeout=None)
             self.add_item(AsyncHandler.YesNoSelect(callback_func, data))
 
     ########################################################################################################################
@@ -343,7 +343,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     class RaceSelectView(nextcord.ui.View):
         def __init__(self, callback_func):
-            super().__init__()
+            super().__init__(timeout=None)
             self.callback_func = callback_func
             self.race_select = AsyncHandler.RaceSelect(self.callback_func)
             self.add_item(self.race_select)
@@ -377,7 +377,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     class MultiRaceSelectView(nextcord.ui.View):
         def __init__(self, callback_func, data, category_id):
-            super().__init__()
+            super().__init__(timeout=None)
             self.callback_func = callback_func
             self.race_select = AsyncHandler.MultiRaceSelect(self.callback_func, data, category_id)
             self.add_item(self.race_select)
@@ -402,8 +402,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             await self.asyncHandler.show_race_info_impl(interaction, self.race_id)
 
     class ShowRacesView(nextcord.ui.View):
-        def __init__(self, asyncHandler, race_id_list, page_callback=None, page_data=None):
-            super().__init__()
+        def __init__(self, asyncHandler, race_id_list, page_callback=None, page_data=None, show_leaderboard_buttons=True):
+            super().__init__(timeout=None)
             base_row = 0
             assert(len(race_id_list) <= 5)
             for race_id in race_id_list:
@@ -418,7 +418,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                     asyncHandler,
                     label=f"Leaderboard {race_id}",
                     row=0)
-                self.add_item(leaderboard_button)
+                if show_leaderboard_buttons:
+                    self.add_item(leaderboard_button)
             if page_callback is not None and page_data is not None:
                 prev_page_button = AsyncHandler.PrevPageButton(page_callback, page_data, row=2)
                 self.add_item(prev_page_button)
@@ -452,7 +453,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 
     class NextPrevButtonView(nextcord.ui.View):
         def __init__(self, callback_func, data):
-            super().__init__()
+            super().__init__(timeout=None)
             prev_page_button = AsyncHandler.PrevPageButton(callback_func, data)
             self.add_item(prev_page_button)
             next_page_button = AsyncHandler.NextPageButton(callback_func, data)
@@ -463,7 +464,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     # Race info button view
     class RaceInfoButtonView(nextcord.ui.View):
         def __init__(self, asyncHandler, race_id):
-            super().__init__()
+            super().__init__(timeout=None)
             race = asyncHandler.get_race(race_id)
             isWeeklyAsync = race.category_id == asyncHandler.weekly_category_id
             self.submit = AsyncHandler.SubmitTimeModal(asyncHandler, race_id, isWeeklyAsync, AsyncHandler.SubmitType.SUBMIT)
@@ -519,6 +520,12 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             ret =  True
         return ret
 
+    def isRaceCreatorChannel(self, channel_id):
+        return channel_id == self.server_info.race_creator_channel
+
+    def checkRaceCreatorCommand(self, interaction):
+        return self.isRaceCreator(interaction.guild, interaction.user) and self.isRaceCreatorChannel(interaction.channel_id)
+
     ####################################################################################################################
     # Adds the weekly async submit/ff button message
     async def add_submit_buttons(self, race=None):
@@ -532,8 +539,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             race = self.get_race(race_id)
         else:
             race_id = race.id
-        await weekly_submit_channel.send(SubmitChannelMsg, view=AsyncHandler.RaceInfoButtonView(self, race_id))
         await weekly_submit_channel.send(self.getRaceInfoTable(race), embed=self.getSeedEmbed(race))
+        await weekly_submit_channel.send(SubmitChannelMsg, view=AsyncHandler.RaceInfoButtonView(self, race_id))
 
     ####################################################################################################################
     # This function breaks a response into multiple messages that meet the Discord API character limit
@@ -913,7 +920,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         if len(query_results) > 0:
             self.resetPrettyTable()
             self.pt.hrules = True
-            self.pt.field_names = ["Date", "Place", "IGT", "Collection Rate", "RTA", "Mode", "Race ID", "Submission ID"]
+            self.pt.field_names = ["Race ID", "Submission ID", "Date", "Place", "IGT", "Collection Rate", "RTA", "Mode", "Comment"]
             self.pt._max_width = {"Mode": 50}
             race_id_list = []
             for result in query_results:
@@ -928,6 +935,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 rta         = result.finish_time_rta
                 submit_id   = result.id
                 place       = self.get_place(race, data.user_id)
+                comment     = result.comment if result.comment is not None else ""
 
                 if rta is None: rta = ""
 
@@ -937,7 +945,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                     rta = "**:**:**"
                     cr = "***"
                     place = "****"
-                self.pt.add_row([date, place, igt, cr, rta, mode, race_id, submit_id])
+                self.pt.add_row([race_id, submit_id, date, place, igt, cr, rta, mode, comment])
 
             total_submissions = AsyncSubmission.select(fn.COUNT(AsyncSubmission.id)).where(AsyncSubmission.user_id == data.user_id).get()
             await interaction.followup.send(f"Recent Async Submissions, page {data.page}:", ephemeral=True)
@@ -1000,16 +1008,13 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             self.category = category
 
     @nextcord.slash_command(guild_ids=SupportedServerList, description="Show Current Races")
-    async def races(self,
-                    interaction,
-                    category: int = nextcord.SlashOption(
-                            description="Race Category to Filter For",
-                            required=False,
-                            choices = getRaceCategoryChoices())):
+    async def races(self, interaction):
         logging.info('Executing races command')
-        if category is None:
-            category = self.weekly_category_id
-        await self.races_impl(interaction, AsyncHandler.RacesData(category, 1))
+        await interaction.send(view=AsyncHandler.CategorySelectView(self.races_first_impl, 1), ephemeral=True)
+
+    ########################################################################################################################
+    async def races_first_impl(self, interaction, category_id, page):
+        await self.races_impl(interaction, AsyncHandler.RacesData(category_id, page))
 
     ########################################################################################################################
     # Implementation of the races command, moved to separate function to be able to reuse
@@ -1040,13 +1045,19 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             self.pt._max_width = {"Mode": 50}
             self.pt.align["Mode"] = "l"
 
+            race_id_list = []
             for race in races:
+                race_id_list.append(race.id)
                 if is_race_creator:
                     self.pt.add_row([race.id, race.start, race.description, race.active])
                 else:
                     self.pt.add_row([race.id, race.start, race.description])
             message = self.pt.get_string()
-            await interaction.send(f"`{message}`", view=AsyncHandler.NextPrevButtonView(self.races_impl, data), ephemeral=True)
+            await interaction.send(f"`{message}`", view=AsyncHandler.ShowRacesView(self,
+                                                                                   race_id_list,
+                                                                                   self.races_impl,
+                                                                                   data,
+                                                                                   False), ephemeral=True)
         else:
             await interaction.send("No races found in that range", ephemeral=True)
 
@@ -1086,7 +1097,8 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
             message = self.getRaceInfoTable(race)
             await interaction.send(message, embed=self.getSeedEmbed(race))
             race_info_view = AsyncHandler.RaceInfoButtonView(self, race_id)
-            await interaction.followup.send(view=race_info_view)
+            await interaction.followup.send(f"Click below to submit/edit or view leaderboard for race {race_id}", view=race_info_view)
+
 
 ########################################################################################################################
 ########################################################################################################################
@@ -1106,7 +1118,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         logging.info('Executing add_race command')
         await interaction.response.defer()
 
-        if self.isRaceCreator(interaction.guild, interaction.user):
+        if self.checkRaceCreatorCommand(interaction):
             add_race_modal = AsyncHandler.AddRaceModal()
             if start_race:
                 add_race_modal.start_race_callback = self.start_race_impl
@@ -1122,7 +1134,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     async def edit_race(self, interaction, race_id: int):
         logging.info('Executing edit_race command')
 
-        if not self.isRaceCreator(interaction.guild, interaction.user):
+        if not self.checkRaceCreatorCommand(interaction):
             await interaction.response.send(NoPermissionMsg, ephemeral=True)
             return
 
@@ -1146,7 +1158,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                             description="Race to Start",
                             required=False)):
         logging.info('Executing start_race command')
-        if not self.isRaceCreator(interaction.guild, interaction.user):
+        if not self.checkRaceCreatorCommand(interaction):
             await interaction.followup.send(NoPermissionMsg, ephemeral=True)
             return
 
@@ -1184,7 +1196,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                             description="Race to End",
                             required=False)):
         logging.info('Executing start_race command')
-        if not self.isRaceCreator(interaction.guild, interaction.user):
+        if not self.checkRaceCreatorCommand(interaction):
             await interaction.followup.send(NoPermissionMsg, ephemeral=True)
             return
 
@@ -1212,7 +1224,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     async def remove_race(self, interaction, race_id: int):
         logging.info('Executing remove_race command')
 
-        if not self.isRaceCreator(interaction.guild, interaction.user):
+        if not self.checkRaceCreatorCommand(interaction):
             await interaction.send(NoPermissionMsg, ephemeral=True)
             return
 
@@ -1245,9 +1257,15 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
 ########################################################################################################################
     @nextcord.slash_command(guild_ids=SupportedServerList, description="Add async race category")
     async def add_category(self, interaction, name, description):
-        new_category = RaceCategory(name, description)
+        if not self.checkRaceCreatorCommand(interaction):
+            await interaction.send(NoPermissionMsg, ephemeral=True)
+            return
+
+        new_category = RaceCategory()
+        new_category.name = name
+        new_category.description = description
         new_category.save()
-        interaction.send(f"Created race category {new_category.name} with ID {new_category.id}")
+        await interaction.send(f"Created race category {new_category.name} with ID {new_category.id}")
 
 ########################################################################################################################
 # WHEEL_INFO
@@ -1301,7 +1319,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                             description="Utility Function to Run",
                             choices = { "Update Leaderboard Channel": 1, "Toggle TP": 2})):
 
-        if not self.isRaceCreator(interaction.guild, interaction.user):
+        if not self.checkRaceCreatorCommand(interaction.guild):
             await interaction.response.send(NoPermissionMsg, ephemeral=True)
             return
 
@@ -1356,8 +1374,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                             channel: nextcord.abc.GuildChannel = nextcord.SlashOption(
                                 description="Channel to pin the race info in")):
         logging.info("Executing pin_race_info command")
-        is_race_creator = self.isRaceCreator(interaction.guild, interaction.user)
-        if not is_race_creator:
+        if not self.checkRaceCreatorCommand(interaction):
             await interaction.send(NoPermissionMsg, ephemeral=True)
             return
 
@@ -1390,8 +1407,9 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         for c in user_race_choices:
             race_id = int(c)
             race = self.get_race(race_id)
-            await channel.send(view=AsyncHandler.RaceInfoButtonView(self, race_id))
             await channel.send(self.getRaceInfoTable(race), embed=self.getSeedEmbed(race))
+            await channel.send(view=AsyncHandler.RaceInfoButtonView(self, race_id))
+            await channel.send("`------------------------------------------------------------------------`")
         await interaction.followup.send("Done")
 
 ########################################################################################################################
