@@ -25,4 +25,5 @@ var/
 *.egg
 
 # Our configuration files
-config.py
+bot_tokens.py
+
