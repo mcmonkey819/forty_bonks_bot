@@ -1,7 +1,6 @@
 import sys
 import nextcord
 from nextcord.ext import commands
-import sqlite3
 from datetime import time
 import config
 import bot_tokens
@@ -19,11 +18,8 @@ bot_token = bot_tokens.PRODUCTION_TOKEN
 dbName = "AsyncRaceInfo.db"
 test_mode = args.test == True or config.TEST_MODE
 if test_mode:
+    logging.info("Setting test mode for BOT")
     bot_token = bot_tokens.TEST_TOKEN
-    dbName = "testDbUtil.db"
-dbConn = sqlite3.connect(dbName)
-dbCursor = dbConn.cursor()
-client = nextcord.Client()
 
 class Bot(commands.Bot):
     def __init__(self, **kwargs):
@@ -44,6 +40,7 @@ class Bot(commands.Bot):
 
 
 intents = nextcord.Intents.all()
+intents.members = True
 bot = Bot(intents=intents)
 if test_mode:
     #async_cog = bot.get_cog('AsyncRaceHandler')

@@ -1,9 +1,8 @@
 # -*- coding: utf-8 -*-
 from nextcord.ext import commands
 import nextcord
-import sqlite3
 import logging
-from prettytable import PrettyTable, DEFAULT, ALL, SINGLE_BORDER, MARKDOWN
+from prettytable import PrettyTable, DEFAULT, ALL
 import re
 import asyncio
 from datetime import datetime, date
@@ -17,11 +16,9 @@ class ServerInfo(NamedTuple):
 
     # Channel IDs
     weekly_submit_channel: int
-    tourney_submit_channel: int
     race_creator_channel: int
     bot_command_channels: list[int]
     weekly_leaderboard_channel: int
-    tourney_leaderboard_channel: int
     announcements_channel: int
     modchat_channel: int
 
