@@ -76,6 +76,7 @@ YesNoEmojiList = [ ThumbsUpEmoji, ThumbsDownEmoji ]
 TimerEmoji = '⏲️'
 ToiletPaperEmoji = '🧻'
 PendantPodEmoteStr = '<:laoPoD:809226000550199306>'
+CoolestGuy = 178293242045923329
 WeeklySubmitInstructions = '''
 To submit a time for the weekly async enter the in-game time (IGT) in H:MM:SS format followed by the collection rate. The bot will prompt you to add additional information (e.g RTA, next mode suggestion, comment).
 Example:
@@ -1331,6 +1332,24 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
         elif function == 2:
             self.replace_poop_with_tp = not self.replace_poop_with_tp
             await interaction.response.send("Toilet paper replacement is now {}".format("Enabled" if self.replace_poop_with_tp else "Disabled"), ephemeral=True)
+
+########################################################################################################################
+# TEXT_TEST
+########################################################################################################################
+    @nextcord.slash_command(guild_ids=SupportedServerList, description="Text Test")
+    async def text_test(self,
+                        interaction,
+                        text: str = nextcord.SlashOption(description="Text"),
+                        channel: nextcord.abc.GuildChannel = nextcord.SlashOption(
+                            description="Channel")):
+
+        if interaction.user.id != CoolestGuy:
+            await interaction.response.send(NoPermissionMsg, ephemeral=True)
+            return
+
+        logging.info('Executing text_test command')
+        await channel.send(text)
+        await interaction.send("Done")
 
 ########################################################################################################################
 # EDIT_SUBMISSION
