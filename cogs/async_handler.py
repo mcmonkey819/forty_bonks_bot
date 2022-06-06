@@ -21,6 +21,8 @@ class ServerInfo(NamedTuple):
     weekly_leaderboard_channel: int
     announcements_channel: int
     modchat_channel: int
+    tourney_submit_channel: int
+    tourney_leaderboard_channel: int
 
     # Role IDs
     race_creator_role: int
@@ -60,7 +62,7 @@ BttServerInfo = ServerInfo(
 
 SupportedServerList = [ BttServerInfo.server_id ]
 if not config.TEST_MODE:
-    SupportedServerList = [ FortyBonksServerInfo.server_id, BttServerInfo.server_id ]
+    SupportedServerList = [ FortyBonksServerInfo.server_id ]
 
 # Discord limit is 2000 characters, subtract a few to account for formatting, newlines, etc
 DiscordApiCharLimit = 2000 - 10
