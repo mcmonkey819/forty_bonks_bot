@@ -780,8 +780,11 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Checks if the provided member is in the asyc_racers table, adds them if not
     def checkAddMember(self, member):
-        racer = AsyncRacer.get(AsyncRacer.user_id == member.id)
-        if racer is None:
+        try:
+            racer = AsyncRacer.select()                               \
+                              .where(AsyncRacer.user_id == member.id) \
+                              .get()
+        except:
             racer = AsyncRacer(user_id = member.id, username = member.name)
             racer.save()
 
