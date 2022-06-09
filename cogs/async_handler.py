@@ -780,13 +780,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
     ####################################################################################################################
     # Checks if the provided member is in the asyc_racers table, adds them if not
     def checkAddMember(self, member):
-        try:
-            racer = AsyncRacer.select()                               \
-                              .where(AsyncRacer.user_id == member.id) \
-                              .get()
-        except:
-            racer = AsyncRacer(user_id = member.id, username = member.name)
-            racer.save()
+        racer, created = AsyncRacer.get_or_create(user_id = member.id, username = member.name, wheel_weight=1)
 
     ####################################################################################################################
     # Checks if the provided emoji is a poop emoji....  sigh...
