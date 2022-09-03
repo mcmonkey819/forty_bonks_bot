@@ -951,7 +951,7 @@ class AsyncHandler(commands.Cog, name='AsyncRaceHandler'):
                 await interaction.followup.send(f"`{table_message}`", ephemeral=True)
             await interaction.followup.send(view=AsyncHandler.ShowRacesView(self, race_id_list, self.race_results_impl, data), ephemeral=True)
         else:
-            await ctx.send("There are no submissions in that range", ephemeral=True)
+            await interaction.followup.send("There are no submissions in that range", ephemeral=True)
 
 ########################################################################################################################
 # LEADERBOARD
